@@ -736,4 +736,76 @@ Closing Logic: Ensure the CustomerApproval view is public-facing (doesn't requir
 - [x] Integrate Global Labor Economics & `SecurityRegistry` directly into the DataBridge core.
 - [x] Lock `CIPHER` estimates point-in-time to securely freeze job prices against admin rate-hikes.
 - [x] Hoist `useEffect` to fix the CoreApp React blank-screen login crash.
+
+## Ignition OS: Logic Backlog
+
+The current backlog for **Ignition OS** focuses on transitioning from prototype "mock" logic to "hardened," production-ready systems. The primary goal is moving sensitive data and control triggers from the local client/UI to secure, server-side environments.
+
+---
+
+### Priority Transition Items
+
+| Feature | Current "Mock" Status | **Required "Hardened" Logic** |
+| :--- | :--- | :--- |
+| **System Lockout** | Controlled by a UI button. | **API-Triggered:** Must respond to remote signals (e.g., payment failure or admin portal command). |
+| **Trial Countdown** | Hardcoded string. | **Database Integration:** Must pull "Activation Date" to prevent users from resetting trials via reinstallation. |
+| **Revenue Model** | Flat monthly fees. | **Tiered Pricing & Tax:** Logic must support different shop types (Diesel vs. Passenger) and tax calculations. |
+| **Security Cipher** | Local JS file (Plaintext). | **Server-Side Encryption:** PINs must be hashed and stored on a server to prevent source code inspection. |
+| **Voice-to-Parts** | Not implemented. | **NLP Integration:** Needs Natural Language Processing to distinguish intent between part requests and general conversation. |
+
+---
+
+### Key Technical Requirements
+* **Centralization:** Shift logic from local JavaScript files and UI buttons to server-side APIs and databases.
+* **Security:** Implement hashing and encryption to protect administrative access.
+* **Intelligence:** Integrate Natural Language Processing (NLP) for advanced voice command filtering.
+* **Financial Accuracy:** Upgrade the billing engine to handle complex tiers and regional tax requirements.
+
+---
+
+Since the `ignition.config` defines the core parameters for **Ignition OS**—including its modules, authority rules, and user profiles—placing it in the `staging_inbox` typically serves as the first step for the system to initialize or update its environment.
+
+Here is how you should handle the content based on the configuration:
+
+### **Staging Protocol**
+* **Target Location**: Moving this to the `staging_inbox` is the standard procedure for the **Intake** and **Queue** modules to process new system instructions.
+* **Data Integrity**: Ensure the text is copied exactly as formatted in the JSON source. The system relies on the **Authority rule** where certain automated decodes (like VIN) take priority, so the config must be precise to avoid logic errors.
+* **Profile Verification**: Before proceeding, ensure you are operating under one of the authorized profiles defined in the config (e.g., **Admin-1111** or **Dev-3333**) to ensure the system accepts the configuration change.
+
+### **Config Summary for Reference**
+| Category | Details |
+| :--- | :--- |
+| **System** | Ignition OS (Version CoreApp.001) |
+| **Stack** | React Native (Expo) with Haptics and Lucide-Icons |
+| **Legacy Support** | Audi/Euro CC-fallback logic enabled |
+| **Active Modules** | Intake, Queue, VIN, Manifest, Admin |
+
+> **Note:** If you are attempting to trigger the **fallback logic**, ensure the `legacy_support` line is included in your copy to maintain compatibility with European systems.
+
+---
+
+The Ignition OS (CoreApp.001) build, specifically outlined in the "build Ignition 001" documentation, is a modular, role-based application designed for diesel repair shops. It provides a unified platform (the "Umbrella") that toggles between an **Owner's Command Center** (analytical dark mode) and a **Technician Kiosk** (high-contrast light mode for shop floors).
+
+The build contains **10 core operational modules** and a specialized **administrative/persistence infrastructure**:
+
+### Core Infrastructure
+* **DataBridge.js (The "Brain"):** A central persistence layer that handles local storage and prepares the app for eventual cloud synchronization. It manages "Trial Clocks," subscription metadata, and a "Sync Queue" for offline functionality.
+* **AdminSubscription (The "Marketplace"):** Manages platform fees, individual module subscriptions, and 30-day "free trial" timers. It includes a "Blurred Preview" feature to show users potential value they are missing until they subscribe.
+
+### Operational Modules
+1.  **FLUX (Operational Flow):** Manages the "state of flow" for service jobs, including mobile-to-shop transitions and bay assignments. It includes a "Foreman PIN" override for critical equipment safety.
+2.  **PRED (Predictive Fleet Key):** Uses real-time telematics (J1939/OBD-II) to monitor engine health and predict mechanical failures before they happen.
+3.  **CODE (DTC Cipher):** Translates raw diagnostic trouble codes (DTCs) into plain-English estimates, required parts lists, and estimated labor times.
+4.  **STOK (Relational Inventory):** Tracks shop stock linked directly to fault codes, including bin locations (e.g., Row 2, Bin 4) for immediate retrieval.
+5.  **PROC (Hybrid Procurement):** Calculates "Time to Target" (TTT) for out-of-stock parts and sources them from local vendors.
+6.  **OMNI (Owner’s Command):** A high-level analytics dashboard for tracking capture rates, stock velocity, and overall shop profitability.
+7.  **KOSK (Technician Kiosk):** A simplified, grease-proof interface for technicians to clock in, log labor, and scan parts using mobile devices.
+8.  **PROT (Margin Protector):** Uses OCR to scan vendor invoices and compare them against set margin rules to prevent "profit leak".
+9.  **PORT (Customer Portal):** An external login for fleet owners to track their ROI, approve estimates via digital signature, and see their loyalty savings.
+10. **HUB (Dispatch & Logistics):** A geospatial map-based view showing real-time locations of mobile units and broken fleet trucks.
+
+### Key Technical Features
+* **Passive-to-Mandatory Strategy:** Features can exist in the code but remain hidden or optional until the owner promotes them to an active requirement.
+* **Liability Protection:** Includes a digital signature capture for PORT and an automated "Invisible DOT Form" (FMCSA 396.11) that pre-populates using telematics data.
+* **Zero-Hardware Strategy:** Uses native mobile phone cameras for barcode/VIN scanning and OCR, avoiding expensive proprietary scanners.
 ```

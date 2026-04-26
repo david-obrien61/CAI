@@ -1,5 +1,5 @@
 /**
- * FILE: IgnitionCore.js
+ * FILE: IgnitionCore.jsx
  * PLATFORM: Web (React DOM)
  * PURPOSE: Web core router and session guard enforcing idle lockouts and rendering the assigned application module.
  * DEPENDENCIES: react
