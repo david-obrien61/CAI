@@ -23,7 +23,6 @@ const AdminSubscription = () => {
       PREDICTIVE: { active: false, tier: 'NONE', trialActive: false, trialStartedAt: null },
       ESTIMATOR: { active: false, tier: 'NONE', trialActive: false, trialStartedAt: null },
       CODE: { active: false, tier: 'NONE', trialActive: false, trialStartedAt: null },
-      CODE: { active: false, tier: 'NONE', trialActive: false, trialStartedAt: null },
       STOK: { active: false, tier: 'NONE', trialActive: false, trialStartedAt: null },
       PROT: { active: false, tier: 'NONE', trialActive: false, trialStartedAt: null },
       HUB: { active: false, tier: 'NONE', trialActive: false, trialStartedAt: null },

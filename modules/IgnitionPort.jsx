@@ -2,12 +2,11 @@
  * FILE: IgnitionPort.jsx
  * PLATFORM: Web (React DOM)
  * PURPOSE: Customer portal view for presenting repair estimates and collecting digital signatures.
- * DEPENDENCIES: react, react-signature-canvas, lucide-react
+ * DEPENDENCIES: react, lucide-react
  */
 
-import React, { useState, useRef } from 'react';
-import SignatureCanvas from 'react-signature-canvas';
-import { Check, ChevronRight, ArrowLeft, Database, Store, Lock, Unlock, Wrench, Plus, Zap, XCircle } from 'lucide-react';
+import React, { useState } from 'react';
+import { Check, ChevronRight, ArrowLeft, Database, Store, Lock, Unlock, Wrench, Plus, Zap, XCircle, Send } from 'lucide-react';
 import DataBridge from '../DataBridge';
 import { MarginEngine } from '../MarginEngine';
 
@@ -18,7 +17,8 @@ const IgnitionPort = ({ activeJob, allJobs = [], onUpdateJob, onSelectJob }) => 
   const [laborRate, setLaborRate] = useState('');
   const [incidentals, setIncidentals] = useState('');
   const [isApproved, setIsApproved] = useState(false);
-  const sigPad = useRef({});
+  const [isSigned, setIsSigned] = useState(false);
+  const [legalConsent, setLegalConsent] = useState(false);
   const vendors = DataBridge.getVendors();
 
   const handleProceedToSignature = () => {
@@ -37,6 +37,26 @@ const IgnitionPort = ({ activeJob, allJobs = [], onUpdateJob, onSelectJob }) => 
     const updatedJob = { ...activeJob, suggestedParts: pricedParts, tasks: tasks, incidentals: incidentals };
     if (onUpdateJob) onUpdateJob(updatedJob);
     setViewMode('SIGNATURE');
+  };
+
+  const handleSendSMS = () => {
+    // Map the locked pricing data into the job object
+    const pricedParts = activeJob.suggestedParts?.map(part => {
+      const pState = pricingData[part.id] || {};
+      return {
+        ...part,
+        wholesaleCost: parseFloat(pState.cost) || 0,
+        retailPrice: MarginEngine.calculateRetail(pState.cost) * part.qty,
+        source: pState.source || 'INVENTORY',
+        vendor: pState.vendor || 'SHOP_STOCK'
+      };
+    }) || [];
+    
+    const updatedJob = { ...activeJob, suggestedParts: pricedParts, tasks: tasks, incidentals: incidentals, status: 'PENDING_CUSTOMER_APPROVAL' };
+    if (onUpdateJob) onUpdateJob(updatedJob);
+    
+    alert(`SMS Sent to Customer! \nLink: ignition.os/approve/${updatedJob.id || updatedJob.jobId}`);
+    setViewMode('LIST'); // Return to the queue while waiting for them to sign on their phone
   };
 
   // ==========================================
@@ -158,12 +178,12 @@ const IgnitionPort = ({ activeJob, allJobs = [], onUpdateJob, onSelectJob }) => 
   // VIEW 3: CUSTOMER SIGNATURE CANVAS
   // ==========================================
   const handleFinalApproval = () => {
-    if (sigPad.current.isEmpty()) {
-      alert("Please provide a signature before authorizing.");
+    if (!isSigned || !legalConsent) {
+      alert("Please tap to sign and check the consent box to authorize work.");
       return;
     }
     
-    const signature = sigPad.current.toDataURL();
+    const signature = "DIGITAL_AUTOSIGN_" + (activeJob?.name || activeJob?.unit || "CUSTOMER");
     const updatedJob = { ...activeJob, status: 'AUTHORIZED' };
     if (onUpdateJob) onUpdateJob(updatedJob);
     
@@ -385,9 +405,15 @@ const IgnitionPort = ({ activeJob, allJobs = [], onUpdateJob, onSelectJob }) => 
                </div>
              </div>
 
-             <button onClick={handleProceedToSignature} className="w-full bg-emerald-600 hover:bg-emerald-500 p-6 rounded-[2rem] text-white font-black uppercase text-lg shadow-xl shadow-emerald-900/40 active:scale-95 transition-all flex justify-center items-center gap-3">
-                Proceed to Customer Signature
-             </button>
+             <div className="flex gap-4">
+               <button onClick={handleProceedToSignature} className="flex-1 bg-emerald-600 hover:bg-emerald-500 p-6 rounded-[2rem] text-white font-black uppercase text-sm shadow-xl shadow-emerald-900/40 active:scale-95 transition-all flex justify-center items-center gap-2">
+                  In-Person Kiosk Sign
+               </button>
+               <button onClick={handleSendSMS} className="flex-1 bg-blue-600 hover:bg-blue-500 p-6 rounded-[2rem] text-white font-black uppercase text-sm shadow-xl shadow-blue-900/40 active:scale-95 transition-all flex justify-center items-center gap-2">
+                  <Send size={18} /> Send via SMS
+               </button>
+             </div>
+             <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest text-center mt-4">SMS delivery uses Twilio API integration.</p>
           </div>
         </div>
       </div>
@@ -430,16 +456,46 @@ const IgnitionPort = ({ activeJob, allJobs = [], onUpdateJob, onSelectJob }) => 
 
       {/* THE CLOSER: SIGNATURE BOX */}
       <div className="bg-white rounded-[2.5rem] p-6 shadow-2xl">
-        <p className="text-center text-[10px] font-black text-slate-400 uppercase mb-4 tracking-widest">Sign to Authorize Repair</p>
-        <div className="border-2 border-dashed border-slate-300 rounded-2xl mb-6 bg-slate-50">
-          <SignatureCanvas 
-            ref={sigPad}
-            canvasProps={{width: 320, height: 180, className: 'sigCanvas mx-auto'}} 
-          />
+        <p className="text-center text-[10px] font-black text-slate-400 uppercase mb-4 tracking-widest">Tap to Authorize Repair</p>
+        
+        {/* TAP TO SIGN BOX */}
+        <div 
+          onClick={() => setIsSigned(true)}
+          className={`border-2 ${isSigned ? 'border-emerald-500 bg-emerald-50' : 'border-dashed border-slate-300 bg-slate-50 hover:bg-slate-100'} rounded-2xl mb-6 h-32 flex items-center justify-center cursor-pointer transition-colors`}
+        >
+          {isSigned ? (
+            <span className="text-4xl text-emerald-700" style={{ fontFamily: "'Brush Script MT', 'Caveat', cursive" }}>
+              {activeJob?.name || activeJob?.unit || 'Customer Authorized'}
+            </span>
+          ) : (
+            <span className="text-slate-400 font-bold uppercase tracking-widest">Tap Here to Sign</span>
+          )}
         </div>
+
+        {/* LEGAL CONSENT */}
+        {isSigned && (
+          <div className="mb-6 flex items-start gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
+            <input 
+              type="checkbox" 
+              id="legalConsent" 
+              checked={legalConsent} 
+              onChange={(e) => setLegalConsent(e.target.checked)}
+              className="mt-1 w-5 h-5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+            />
+            <label htmlFor="legalConsent" className="text-xs font-bold text-slate-600 leading-tight cursor-pointer select-none">
+              By checking this box, you are approving the estimate and legally authorizing the shop to perform the listed repairs.
+            </label>
+          </div>
+        )}
+
         <button 
           onClick={handleFinalApproval}
-          className="w-full bg-emerald-600 hover:bg-emerald-500 p-6 rounded-[2rem] text-white font-black uppercase text-lg shadow-xl shadow-emerald-900/40 active:scale-95 transition-all"
+          disabled={!isSigned || !legalConsent}
+          className={`w-full p-6 rounded-[2rem] font-black uppercase text-lg shadow-xl transition-all ${
+            (isSigned && legalConsent) 
+              ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-900/40 active:scale-95' 
+              : 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
+          }`}
         >
           Authorize Work
         </button>

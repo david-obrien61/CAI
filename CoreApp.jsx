@@ -19,7 +19,8 @@ import IgnitionPort from './modules/IgnitionPort';
 import IgnitionHub from './modules/IgnitionHub';
 import IgnitionProc from './modules/IgnitionProc';
 import IgnitionCRM from './modules/IgnitionCRM';
-import { Lock, LayoutDashboard, Truck, Activity, ShoppingCart, Search, Package, BarChart3, ShieldCheck, Users, Map, Store, ScanLine, QrCode, DollarSign, RefreshCw } from 'lucide-react';
+import IgnitionCompliance from './modules/IgnitionCompliance';
+import { Lock, LayoutDashboard, Truck, Activity, ShoppingCart, Search, Package, BarChart3, ShieldCheck, Users, Map, Store, ScanLine, QrCode, DollarSign, RefreshCw, UserPlus, ClipboardCheck } from 'lucide-react';
 
 /**
  * UI: The Enrollment Generator & Gate
@@ -421,6 +422,7 @@ const CoreApp = () => {
                 { id: 'CRM', label: 'Clients', icon: Users, color: 'text-indigo-400', bg: 'bg-slate-800' },
                 { id: 'PROT', label: 'Margins', icon: ShieldCheck, color: 'text-teal-400', bg: 'bg-slate-800' },
                 { id: 'PORT', label: 'Estimates', icon: DollarSign, color: 'text-emerald-400', bg: 'bg-slate-800' },
+                { id: 'COMPLIANCE', label: 'Compliance', icon: ClipboardCheck, color: 'text-red-500', bg: 'bg-slate-800' },
                 { id: 'MARKETPLACE', label: 'Market', icon: ShoppingCart, color: 'text-pink-500', bg: 'bg-slate-800' },
               ].map(app => {
                  const { isExpired } = DataBridge.checkTrialStatus(app.id);
@@ -497,6 +499,14 @@ const CoreApp = () => {
             <TrialGatekeeper moduleKey="PROT" moduleName="PROT // Margin Matrix">
               <IgnitionProt />
             </TrialGatekeeper>
+          </AccessGatekeeper>
+        )}
+
+        {activeModule === 'COMPLIANCE' && (
+          <AccessGatekeeper requiredPermissions={[]}>
+            <IgnitionCompliance onComplete={(payload) => {
+              setActiveModule('DASHBOARD');
+            }} />
           </AccessGatekeeper>
         )}
 

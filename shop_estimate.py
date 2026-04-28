@@ -89,6 +89,11 @@ DATABASE = load_db()
 # 4. API ENDPOINTS
 # ==========================================
 
+@app.get("/")
+async def root():
+    """Root endpoint to provide a friendly welcome message."""
+    return {"message": "Welcome to the Ignition OS Smart Estimate Engine API! Visit /docs to test the endpoints."}
+
 @app.get("/api/jobs")
 async def get_jobs():
     """Returns the central list of jobs"""
