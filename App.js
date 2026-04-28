@@ -5,7 +5,7 @@
  * DEPENDENCIES: react, react-native, react-native-safe-area-context, lucide-react-native, expo-haptics
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, FlatList, Dimensions, StatusBar } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { 
@@ -15,8 +15,7 @@ import {
 import * as Haptics from 'expo-haptics';
 
 // Hooks & Modules
-import { useDataBridge } from './hooks/useDataBridge';
-import { useIgnitionCipher } from './hooks/useIgnitionCipher'; 
+import DataBridge from './DataBridge';
 import TechKeypad from './modules/TechKeypad';
 import IgnitionIntake from './modules/IgnitionIntake';
 import IgnitionQueue from './modules/IgnitionQueue';
@@ -25,6 +24,7 @@ import PartsList from './modules/PartsList';
 import IgnitionAdmin from './modules/IgnitionAdmin';
 import IgnitionVoice from './modules/IgnitionVoice';
 import CustomerEstimate from './modules/CustomerEstimate';
+import IgnitionTools from './modules/IgnitionTools';
 import EnrollmentCatch from './EnrollmentCatch';
 
 const { width } = Dimensions.get('window');
@@ -110,10 +110,18 @@ const ModuleRouter = ({
       return <CustomerEstimate selectedJob={selectedJob} />;
     case 'parts': 
       return <PartsList selectedJob={selectedJob} profile={activeProfile} onUpdatePrefs={updatePrefs} />;
+    case 'tools':
+      return <IgnitionTools profile={activeProfile} />;
     case 'admin': 
       return <IgnitionAdmin registry={registry} onToggle={toggleModule} onLockout={triggerGlobalLockout} />;
     default: 
-      return null;
+      return (
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 40 }}>
+          <ShieldAlert color="#f59e0b" size={64} />
+          <Text style={{ color: '#fff', fontSize: 20, fontWeight: '900', marginTop: 20, textAlign: 'center' }}>MODULE OFFLINE</Text>
+          <Text style={{ color: '#94a3b8', textAlign: 'center', marginTop: 10, lineHeight: 22 }}>This terminal module is currently under construction and not yet connected to the main relay.</Text>
+        </View>
+      );
   }
 };
 
@@ -130,8 +138,80 @@ function MainContent() {
   const [currentModule, setCurrentModule] = useState(null);
   const [selectedJob, setSelectedJob] = useState(null);
   
-  const { registry, jobs, isLocked, addJob, updateJob, toggleModule, triggerGlobalLockout, unlockSystem } = useDataBridge();
-  const { activeProfile, authenticate, logout, updatePrefs, signWaiver } = useIgnitionCipher();
+  // Universal DataBridge State
+  const [activeProfile, setActiveProfile] = useState(() => DataBridge.load('current_user'));
+  const [isLocked, setIsLocked] = useState(false);
+  const [jobs, setJobs] = useState(() => DataBridge.load('active_jobs') || [
+    { jobId: 'JOB-999', name: 'PRE-FLIGHT TEST', year: '1999', make: 'Chevy', model: 'Suburban', status: 'READY' }
+  ]);
+  const [registry, setRegistry] = useState(() => DataBridge.getRegistry());
+
+  // Cloud Sync on Mount
+  useEffect(() => {
+    DataBridge.pullCloudSync().then(serverJobs => {
+      if (serverJobs && serverJobs.length > 0) {
+        setJobs(serverJobs);
+      }
+    });
+  }, []);
+
+  const authenticate = (pin) => {
+    const user = DataBridge.authenticate(pin);
+    if (user) {
+      setActiveProfile(user);
+      return true;
+    }
+    return false;
+  };
+
+  const logout = () => {
+    DataBridge.logout();
+    setActiveProfile(null);
+    setCurrentModule(null);
+  };
+
+  const signWaiver = () => {
+    if (!activeProfile) return;
+    const updatedUser = { ...activeProfile, hasSignedWaiver: true };
+    DataBridge.save('current_user', updatedUser);
+    
+    const profiles = DataBridge.getProfiles();
+    profiles[updatedUser.pin] = updatedUser;
+    DataBridge.save('user_profiles', profiles);
+    
+    setActiveProfile(updatedUser);
+  };
+
+  const updatePrefs = (newPins) => {
+    if (!activeProfile) return;
+    const updatedUser = { 
+      ...activeProfile, 
+      preferences: { ...activeProfile.preferences, pinnedSpecs: newPins } 
+    };
+    DataBridge.save('current_user', updatedUser);
+    setActiveProfile(updatedUser);
+  };
+
+  const addJob = (newJob) => {
+    const updated = [...jobs, { ...newJob, status: 'READY' }];
+    setJobs(updated);
+    DataBridge.save('active_jobs', updated);
+  };
+
+  const updateJob = (jobId, updatedData) => {
+    const updated = jobs.map(job => job.jobId === jobId ? { ...job, ...updatedData } : job);
+    setJobs(updated);
+    DataBridge.save('active_jobs', updated);
+  };
+
+  const toggleModule = (id) => {
+    const updated = { ...registry, [id]: { ...registry[id], active: !registry[id].active } };
+    setRegistry(updated);
+    DataBridge.save('system_registry', updated);
+  };
+
+  const triggerGlobalLockout = () => setIsLocked(true);
+  const unlockSystem = () => setIsLocked(false);
 
   const getIcon = (id, color) => {
     const p = { color, size: 28, strokeWidth: 2 };

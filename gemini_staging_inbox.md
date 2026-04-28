@@ -808,4 +808,47 @@ The build contains **10 core operational modules** and a specialized **administr
 * **Passive-to-Mandatory Strategy:** Features can exist in the code but remain hidden or optional until the owner promotes them to an active requirement.
 * **Liability Protection:** Includes a digital signature capture for PORT and an automated "Invisible DOT Form" (FMCSA 396.11) that pre-populates using telematics data.
 * **Zero-Hardware Strategy:** Uses native mobile phone cameras for barcode/VIN scanning and OCR, avoiding expensive proprietary scanners.
+
+---
+
+## 📱 Web vs. Mobile Tile Architecture (Matrix)
+
+### 1. Operations & Workflow
+| Feature Focus | Web (Command Center) | Mobile (Tech Terminal) |
+| :--- | :--- | :--- |
+| **Job Creation** | *N/A* (Relies on sync) | **Intake:** Creates new Work Orders. |
+| **Live Roster** | **FLUX (Workflow):** Assigns crew sizes, safety flags. | **Queue:** List of active jobs. |
+| **Dispatching** | **HUB (Dispatch):** Map showing live GPS locations. | **Fleet:** *(Offline)* Routes mobile techs. |
+
+### 2. Diagnostics & Technician Tools
+| Feature Focus | Web (Command Center) | Mobile (Tech Terminal) |
+| :--- | :--- | :--- |
+| **Identification**| *N/A* | **VIN Decode:** Uses device camera (OCR)/barcode. |
+| **Notes & Comms** | **KOSK Mode:** Reads transcribed notes. | **Scribe AI (Voice):** Tap-to-talk dictation. |
+| **DTC Decodes** | **CIPHER:** Translates raw SPN fault codes. | *N/A* (Handled by Voice AI extracting parts) |
+| **Maintenance** | **PREDICTIVE (Predict):** Tracks telematics/PMIs. | *N/A* |
+
+### 3. Inventory & Supply Chain
+| Feature Focus | Web (Command Center) | Mobile (Tech Terminal) |
+| :--- | :--- | :--- |
+| **Shop Stock** | **STOK (Inventory):** Shows bin locations/wholesale. | **Stock AI (Inv):** *(Offline)* Bay velocity alerts. |
+| **External Parts**| **PROC (Vendors):** Vendor directory/tracking. | **Procure:** *(Offline)* Tech scans part receipt. |
+| **Pricing** | **PROT (Margin):** "Slab Margin" matrix rules. | *N/A* |
+| **Hardware** | *N/A* | **Tools:** *(Offline)* Tech hardware checklist. |
+
+### 4. Financials & Administration
+| Feature Focus | Web (Command Center) | Mobile (Tech Terminal) |
+| :--- | :--- | :--- |
+| **Approvals** | **PORT (Estimates):** Generates digital invoice/E-Sign. | **Estimates:** *(Offline)* Writer builds quote. |
+| **Analytics** | **OMNI (Command):** Top-level metrics. | *N/A* |
+| **Admin** | **MARKETPLACE (Market):** Subscription manager. | **Admin:** Emergency lockouts / toggles. |
+
+---
+
+### 🚀 Immediate Mobile Backlog
+- [ ] **Build Mobile Tools Ledger:** Allow techs to check out hardware and ensure accountability.
+- [ ] **Build Mobile Estimates View:** Wire up the Estimates tile so service writers can build quotes at the vehicle.
+- [ ] **Build Mobile Procurement View:** Build the physical part receipt scanning UI for receiving vendor orders.
+- [ ] **Build Mobile Stock AI View:** Inform the tech of consumable stock levels before starting a job.
+- [ ] **Build Mobile Fleet Map:** Basic routing for mobile dispatch.
 ```

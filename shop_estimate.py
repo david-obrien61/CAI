@@ -1,133 +1,172 @@
 import time
-from typing import List, Tuple
+import tempfile
+from google import genai
+from google.genai import types
+from typing import List, Dict
 from pydantic import BaseModel, Field
+from fastapi import FastAPI, UploadFile, File
+import uvicorn
+from fastapi.middleware.cors import CORSMiddleware
+import json
+import os
+from dotenv import load_dotenv
+
+# Load environment variables from the .env file
+load_dotenv()
+
+# ==========================================
+# Configure Gemini API
+# ==========================================
+api_key = os.getenv("GEMINI_API_KEY")
+if not api_key:
+    print("WARNING: GEMINI_API_KEY environment variable not set.")
+client = genai.Client(api_key=api_key)
 
 # ==========================================
 # 0. PYDANTIC MODELS (Strict Data Shapes)
 # ==========================================
 
-class ParsedTechNote(BaseModel):
-    part: str = Field(description="The generic name of the requested part")
-    vehicle: str = Field(description="Target vehicle details including Year/Make/Model")
+class PartManifestItem(BaseModel):
+    name: str
+    qty: int
 
-class VendorQuote(BaseModel):
-    vendor: str
-    part_no: str
-    cost: float = Field(gt=0, description="Wholesale cost explicitly asserted to be > 0")
-    stock: str 
-    eta_hours: int
+class RepairTask(BaseModel):
+    description: str
+    suggested_hours: float
+    parts: List[PartManifestItem]
 
-class ProcessedEstimate(VendorQuote):
-    retail: float
-    profit: float
+class TranscriptionResponse(BaseModel):
+    transcription: str
+    tasks: List[RepairTask]
 
 # ==========================================
-# 1. CONFIGURATION: SHOP PRICE MATRIX
+# 1. FASTAPI APP INSTANCE
 # ==========================================
-# Rules: Wholesale Cost Range -> % Markup
-PRICE_MATRIX = [
-    {"max_cost": 50, "markup": 1.0},    # 100% markup on small items (nuts/bolts/filters)
-    {"max_cost": 200, "markup": 0.6},   # 60% markup
-    {"max_cost": 1000, "markup": 0.4},  # 40% markup
-    {"max_cost": 10000, "markup": 0.25} # 25% markup on big ticket items (transmissions)
-]
+
+app = FastAPI(
+    title="Ignition OS Smart Estimate Engine",
+    description="Processes technician audio notes to generate parts manifests.",
+    version="1.0.0"
+)
+
+# Enable CORS so the React Web App can talk to this API
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # ==========================================
-# 2. VENDOR DATA (Simulating Live API Feeds)
+# 2. CENTRAL DATABASE (Mock Cloud)
 # ==========================================
-def get_live_vendor_inventory(part_name: str, vehicle: str) -> List[VendorQuote]:
+
+DB_FILE = "shop_db.json"
+
+def load_db():
+    if os.path.exists(DB_FILE):
+        with open(DB_FILE, "r") as f:
+            return json.load(f)
+    return {
+        "jobs": [
+            { "jobId": "JOB-999", "name": "PRE-FLIGHT TEST", "year": "1999", "make": "Chevy", "model": "Suburban", "status": "READY" }
+        ]
+    }
+
+def save_db(data):
+    with open(DB_FILE, "w") as f:
+        json.dump(data, f, indent=4)
+
+DATABASE = load_db()
+
+# ==========================================
+# 3. LOGIC ENGINE (AI SIMULATION)
+# ==========================================
+
+
+# ==========================================
+# 4. API ENDPOINTS
+# ==========================================
+
+@app.get("/api/jobs")
+async def get_jobs():
+    """Returns the central list of jobs"""
+    return DATABASE["jobs"]
+
+@app.post("/api/jobs")
+async def save_jobs(jobs: List[dict]):
+    """Overwrites the central list of jobs (Mock sync)"""
+    DATABASE["jobs"] = jobs
+    save_db(DATABASE)
+    return {"status": "success"}
+
+@app.post("/transcribe", response_model=TranscriptionResponse)
+async def transcribe_audio(file: UploadFile = File(...)):
     """
-    In production, this calls APIs like PartsTech, Nexpart, or FleetPride.
+    Accepts an audio file, simulates transcription and part extraction,
+    and returns data in the format the mobile app expects.
     """
-    return [
-        VendorQuote(vendor="NAPA", part_no="ALT-9921", cost=185.00, stock="Local", eta_hours=2),
-        VendorQuote(vendor="AutoZone", part_no="AZ-882", cost=192.50, stock="Local", eta_hours=1),
-        VendorQuote(vendor="DieselSpecialist", part_no="DS-X10", cost=160.00, stock="Warehouse", eta_hours=24)
-    ]
-
-# ==========================================
-# 3. LOGIC ENGINES
-# ==========================================
-
-def calculate_retail_price(cost: float) -> float:
-    """Applies the Shop's Markup Matrix to the wholesale cost."""
-    for tier in PRICE_MATRIX:
-        if cost <= tier["max_cost"]:
-            return round(cost * (1 + tier["markup"]), 2)
-    return round(cost * 1.2, 2) # Default 20% for extreme cases
-
-def parse_tech_note(note: str) -> ParsedTechNote:
-    """
-    Simulating an AI extraction (e.g., Gemini API).
-    Input: "Need an alternator for a 2018 Ram 3500"
-    """
-    # Real AI call: response = llm.extract(note, schema=ParsedTechNote)
-    return ParsedTechNote(part="Alternator", vehicle="2018 Ram 3500 Cummins")
-
-# ==========================================
-# 4. THE HYBRID WORKFLOW
-# ==========================================
-
-def build_smart_estimate(tech_voice_note: str) -> Tuple[ProcessedEstimate, List[ProcessedEstimate]]:
-    print(f"--- Processing Note: '{tech_voice_note}' ---")
+    print(f"Received file: {file.filename} ({file.content_type})")
     
-    # Step 1: AI Understands the need through a validated model
-    extracted: ParsedTechNote = parse_tech_note(tech_voice_note)
-    
-    # Step 2: Fetch Live Quotes as structured VendorQuote data models
-    quotes: List[VendorQuote] = get_live_vendor_inventory(extracted.part, extracted.vehicle)
-    
-    processed_options: List[ProcessedEstimate] = []
-    for q in quotes:
-        retail = calculate_retail_price(q.cost)
-        profit = round(retail - q.cost, 2)
+    # 1. Save the uploaded audio to a temporary file so Gemini can process it
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".m4a") as temp_audio:
+        temp_audio.write(await file.read())
+        temp_audio_path = temp_audio.name
+
+    try:
+        # 2. Upload to Gemini
+        print("Uploading audio to Gemini...")
+        audio_file = client.files.upload(file=temp_audio_path)
+
+        # 3. Prompt Gemini with strict JSON instructions
+        prompt = """
+        You are a master diesel mechanic and service writer. 
+        Listen to the following technician's audio note. 
+        1. Provide a clean, professional text transcription of what they said.
+        2. Extract the repair actions into specific 'tasks'.
+        3. For each task, estimate the 'suggested_hours' based on standard heavy-duty/diesel labor guides.
+        4. For each task, list the REQUIRED 'parts'. If a part implies other necessary parts (e.g., an oil change requires an oil filter, a gasket implies sealant, etc.), include those implied parts too with reasonable quantities.
         
-        # Injecting the results into the stricter ProcessedEstimate model
-        processed_options.append(
-            ProcessedEstimate(
-                vendor=q.vendor,
-                part_no=q.part_no,
-                cost=q.cost,
-                stock=q.stock,
-                eta_hours=q.eta_hours,
-                retail=retail,
-                profit=profit
-            )
+        Return the result strictly as JSON matching this schema:
+        {
+            "transcription": "string",
+            "tasks": [
+                {
+                    "description": "string",
+                    "suggested_hours": float,
+                    "parts": [{"name": "string", "qty": int}]
+                }
+            ]
+        }
+        """
+
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=[prompt, audio_file],
+            config=types.GenerateContentConfig(response_mime_type="application/json")
         )
+        
+        # Clean up the file from Google's servers
+        client.files.delete(name=audio_file.name)
 
-    # Step 3: Recommend the "Best Fit" (Balance of Price vs Speed)
-    # We prefer 'Local' stock and then the highest profit. Note that we use .stock instead of ['stock']
-    recommendation = sorted(processed_options, key=lambda x: (x.stock != 'Local', -x.profit))[0]
-    
-    return recommendation, processed_options
+        # 4. Parse JSON and return to mobile app
+        result = json.loads(response.text)
+        return TranscriptionResponse(**result)
 
-def execute_order(recommendation: ProcessedEstimate) -> None:
-    """Called only when customer clicks 'APPROVE'"""
-    print(f"\n[ACTION] Ordering Part {recommendation.vendor}...")
-    time.sleep(1)
-    print(f"[SUCCESS] Purchase Order #TX-99281 sent to {recommendation.vendor}.")
-    print(f"[LOG] Profit of ${recommendation.profit} locked in.")
+    finally:
+        # Clean up local temp file
+        if os.path.exists(temp_audio_path):
+            os.remove(temp_audio_path)
 
 # ==========================================
-# 5. EXECUTION EXAMPLE
+# 4. EXECUTION
 # ==========================================
 
 if __name__ == "__main__":
-    # A. Technician speaks into the tablet:
-    note = "The 2018 Ram 3500 needs a new alternator, current one is seized."
-
-    # B. AI builds the internal data (Happens BEFORE estimate is sent)
-    best_option, all_options = build_smart_estimate(note)
-
-    print("\n--- AI Sourcing Results (Internal View) ---")
-    for opt in all_options:
-        # Note the change from dictionary syntax opt['vendor'] to property syntax opt.vendor
-        print(f"Vendor: {opt.vendor} | Retail: ${opt.retail} | ETA: {opt.eta_hours}hrs | Profit: ${opt.profit}")
-
-    print(f"\nAI RECOMMENDED VENDOR: {best_option.vendor} (Highest profit + Local stock)")
-
-    # C. Customer approves the estimate (Simulated)
-    customer_approved = True 
-
-    if customer_approved:
-        execute_order(best_option)
+    # To run this server:
+    # 1. pip install "fastapi[all]"
+    # 2. uvicorn shop_estimate:app --host 0.0.0.0 --port 8000 --reload
+    print("Starting Ignition OS Smart Estimate Engine...")
+    print("Run with: uvicorn shop_estimate:app --host 0.0.0.0 --port 8000")
+    uvicorn.run(app, host="0.0.0.0", port=8000)

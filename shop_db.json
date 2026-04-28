@@ -1,0 +1,214 @@
+{
+    "jobs": [
+        {
+            "jobId": "JOB-999",
+            "name": "PRE-FLIGHT TEST",
+            "year": "2006",
+            "make": "Toyota",
+            "model": "RAV4",
+            "status": "NEEDS_ESTIMATE",
+            "vin": "YV1672MK8D2250393",
+            "engine": "2.4L I4 DOHC",
+            "isValidated": true,
+            "transcription": "I inspected the engine bay and found a severe oil leak coming from the turbocharger housing. We will need a complete seal kit and a new exhaust manifold gasket to complete the repair.",
+            "suggestedParts": [
+                {
+                    "id": "1",
+                    "name": "Turbo Seal Kit",
+                    "qty": 1
+                },
+                {
+                    "id": "2",
+                    "name": "Manifold Gasket",
+                    "qty": 1
+                },
+                {
+                    "id": "3",
+                    "name": "15W-40 Synthetic Oil (Qt)",
+                    "qty": 4
+                }
+            ]
+        },
+        {
+            "name": "Test",
+            "phone": "2223338877",
+            "year": "2006",
+            "make": "Toyota",
+            "model": "RAV4",
+            "vin": "YV1672MK8D2250393",
+            "problem": "Won\u2019t start ",
+            "jobId": "JOB-8831",
+            "status": "NEEDS_ESTIMATE",
+            "engine": "2.4L I4 DOHC",
+            "isValidated": true,
+            "transcription": "I inspected the engine bay and found a severe oil leak coming from the turbocharger housing. We will need a complete seal kit and a new exhaust manifold gasket to complete the repair.",
+            "suggestedParts": [
+                {
+                    "id": "1",
+                    "name": "Turbo Seal Kit",
+                    "qty": 1
+                },
+                {
+                    "id": "2",
+                    "name": "Manifold Gasket",
+                    "qty": 1
+                },
+                {
+                    "id": "3",
+                    "name": "15W-40 Synthetic Oil (Qt)",
+                    "qty": 4
+                }
+            ]
+        },
+        {
+            "name": "Test2",
+            "phone": "3332221111",
+            "year": "2006",
+            "make": "Toyota",
+            "model": "RAV4",
+            "vin": "YV1672MK8D2250393",
+            "problem": "Broke ",
+            "jobId": "JOB-5107",
+            "status": "NEEDS_ESTIMATE",
+            "engine": "2.4L I4 DOHC",
+            "isValidated": true,
+            "transcription": "I inspected the engine bay and found a severe oil leak coming from the turbocharger housing. We will need a complete seal kit and a new exhaust manifold gasket to complete the repair.",
+            "suggestedParts": [
+                {
+                    "id": "1",
+                    "name": "Turbo Seal Kit",
+                    "qty": 1
+                },
+                {
+                    "id": "2",
+                    "name": "Manifold Gasket",
+                    "qty": 1
+                },
+                {
+                    "id": "3",
+                    "name": "15W-40 Synthetic Oil (Qt)",
+                    "qty": 4
+                }
+            ]
+        },
+        {
+            "name": "Andy",
+            "phone": "2223337777",
+            "year": "2006",
+            "make": "Toyota",
+            "model": "RAV4",
+            "vin": "YV1672MK8D2250393",
+            "problem": "Bad engine ",
+            "jobId": "JOB-5908",
+            "status": "NEEDS_ESTIMATE",
+            "engine": "2.4L I4 DOHC",
+            "isValidated": true,
+            "transcription": "I inspected the engine bay and found a severe oil leak coming from the turbocharger housing. We will need a complete seal kit and a new exhaust manifold gasket to complete the repair.",
+            "suggestedParts": [
+                {
+                    "id": "1",
+                    "name": "Turbo Seal Kit",
+                    "qty": 1
+                },
+                {
+                    "id": "2",
+                    "name": "Manifold Gasket",
+                    "qty": 1
+                },
+                {
+                    "id": "3",
+                    "name": "15W-40 Synthetic Oil (Qt)",
+                    "qty": 4
+                }
+            ]
+        },
+        {
+            "name": "Dave",
+            "phone": "8886663322",
+            "year": "2006",
+            "make": "Toyota",
+            "model": "RAV4",
+            "vin": "YV1672MK8D2250393",
+            "problem": "Transmission ",
+            "jobId": "JOB-2947",
+            "status": "NEEDS_ESTIMATE",
+            "engine": "2.4L I4 DOHC",
+            "isValidated": true,
+            "transcription": "I inspected the engine bay and found a severe oil leak coming from the turbocharger housing. We will need a complete seal kit and a new exhaust manifold gasket to complete the repair.",
+            "suggestedParts": [
+                {
+                    "id": "1",
+                    "name": "Turbo Seal Kit",
+                    "qty": 1
+                },
+                {
+                    "id": "2",
+                    "name": "Manifold Gasket",
+                    "qty": 1
+                },
+                {
+                    "id": "3",
+                    "name": "15W-40 Synthetic Oil (Qt)",
+                    "qty": 4
+                }
+            ]
+        },
+        {
+            "name": "Texas ",
+            "phone": "2223331122",
+            "year": "2020",
+            "make": "Chevy ",
+            "model": "Suburban ",
+            "vin": "",
+            "problem": "Ddddd",
+            "jobId": "JOB-1777",
+            "status": "READY"
+        },
+        {
+            "name": "Texas Star Logistics",
+            "phone": "512-555-0199",
+            "year": "2006",
+            "make": "Toyota",
+            "model": "RAV4",
+            "vin": "YV1672MK8D2250393",
+            "problem": "Coolant leak ",
+            "jobId": "JOB-4010",
+            "customerId": "C-1001",
+            "customerTier": "FLEET",
+            "status": "NEEDS_ESTIMATE",
+            "engine": "2.4L I4 DOHC",
+            "isValidated": true,
+            "transcription": "I inspected the engine bay and found a severe oil leak coming from the turbocharger housing. We will need a complete seal kit and a new exhaust manifold gasket to complete the repair.",
+            "suggestedParts": [
+                {
+                    "id": "1",
+                    "name": "Turbo Seal Kit",
+                    "qty": 1
+                },
+                {
+                    "id": "2",
+                    "name": "Manifold Gasket",
+                    "qty": 1
+                },
+                {
+                    "id": "3",
+                    "name": "15W-40 Synthetic Oil (Qt)",
+                    "qty": 4
+                }
+            ]
+        },
+        {
+            "name": "Regina",
+            "phone": "2223339999",
+            "year": "2006",
+            "make": "Toyota",
+            "model": "RAV4",
+            "vin": "YV1672MK8D2250393",
+            "problem": "Bleed out ",
+            "jobId": "JOB-1868",
+            "status": "READY",
+            "engine": "2.4L I4 DOHC",
+            "isValidated": true
+        }
+    ]
+}

@@ -54,14 +54,36 @@ const useSessionGuard = () => {
  * DESC: Secure Identity Required
  */
 const IdentityRequiredSplash = () => {
+  const [pin, setPin] = useState('');
+
+  const handleAuth = () => {
+    const user = DataBridge.authenticate(pin);
+    if (user) {
+      window.location.reload(); // Refresh to let the Core router mount the correct dashboard
+    } else {
+      alert("Invalid Access Code");
+      setPin('');
+    }
+  };
+
   return (
     <div className="h-screen w-screen bg-black flex flex-col items-center justify-center p-6 relative overflow-hidden">
       <div className="absolute inset-0" style={{ backgroundImage: 'linear-gradient(rgba(30,41,59,0.3) 1px, transparent 1px), linear-gradient(90deg, rgba(30,41,59,0.3) 1px, transparent 1px)', backgroundSize: '40px 40px' }} />
       <div className="z-10 bg-slate-900/90 backdrop-blur-md p-10 rounded-[3rem] border border-slate-800 shadow-2xl w-full max-w-sm text-center">
-        <h1 className="text-2xl font-black italic text-red-500 uppercase tracking-tighter mb-2">Access Denied</h1>
+        <h1 className="text-2xl font-black italic text-white uppercase tracking-tighter mb-2">System Locked</h1>
         <p className="text-[10px] font-mono text-slate-500 mb-8 uppercase tracking-[0.2em]">Secure Identity Required</p>
-        <button onClick={() => window.location.reload()} className="w-full bg-slate-800 text-white font-black py-5 rounded-2xl uppercase tracking-widest text-[10px] hover:bg-slate-700 transition">
-          Return to Login
+        
+        <input 
+          type="password" 
+          maxLength={4}
+          value={pin}
+          onChange={(e) => setPin(e.target.value)}
+          placeholder="----"
+          className="w-full bg-black border-2 border-slate-800 rounded-2xl p-4 text-center text-white font-black text-3xl tracking-[1em] mb-6 outline-none focus:border-blue-500 transition-colors"
+        />
+
+        <button onClick={handleAuth} className="w-full bg-blue-600 text-white font-black py-5 rounded-2xl uppercase tracking-widest text-[10px] hover:bg-blue-500 transition shadow-[0_0_20px_rgba(37,99,235,0.3)] active:scale-95">
+          Authenticate
         </button>
       </div>
     </div>

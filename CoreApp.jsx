@@ -17,7 +17,9 @@ import IgnitionKosk from './modules/IgnitionKosk';
 import IgnitionProt from './modules/IgnitionProt';
 import IgnitionPort from './modules/IgnitionPort';
 import IgnitionHub from './modules/IgnitionHub';
-import { Lock, LayoutDashboard, Truck, Activity, ShoppingCart, Search, Package, BarChart3, ShieldCheck, Users, Map, Store, ScanLine, QrCode } from 'lucide-react';
+import IgnitionProc from './modules/IgnitionProc';
+import IgnitionCRM from './modules/IgnitionCRM';
+import { Lock, LayoutDashboard, Truck, Activity, ShoppingCart, Search, Package, BarChart3, ShieldCheck, Users, Map, Store, ScanLine, QrCode, DollarSign, RefreshCw } from 'lucide-react';
 
 /**
  * UI: The Enrollment Generator & Gate
@@ -158,24 +160,9 @@ const IdentityMatrix = ({ onLogin }) => {
   const [pin, setPin] = useState('');
   
   const handleLogin = () => {
-     let users = DataBridge.load('users_table');
-     
-     // CRITICAL: Ensure users is strictly an array, clearing out any malformed legacy objects
-     if (!Array.isArray(users) || users.length === 0) {
-       // Self-heal initial seeding for prototype testing
-       users = [
-          { id: "E-101", name: "Owner Admin", pin: "0000", permissions: ["OWNER", "FINANCE", "FRONT_OFFICE", "INVENTORY", "LOGISTICS", "MANAGER", "TECHNICIAN"] },
-          { id: "E-102", name: "Sarah Miller (Front)", pin: "1234", permissions: ["FRONT_OFFICE", "INVENTORY"] },
-          { id: "E-103", name: "Dispatch Dan", pin: "5678", permissions: ["LOGISTICS"] },
-          { id: "E-104", name: "Terry (Tech)", pin: "1111", permissions: ["TECHNICIAN", "FLUX", "CODE"] },
-          { id: "E-199", name: "Shop Manager", pin: "9999", permissions: ["MANAGER", "TECHNICIAN", "INVENTORY"] }
-       ];
-       DataBridge.save('users_table', users);
-     }
-
-     const matched = users.find(u => u.pin === pin);
-     if (matched) {
-        onLogin(matched);
+     const user = DataBridge.authenticate(pin);
+     if (user) {
+        onLogin(user);
      } else {
         alert("SECURITY FAULT: Invalid Identity PIN.");
         setPin('');
@@ -223,11 +210,14 @@ const CoreApp = () => {
     status: 'MOBILE_FIELD',
     inventory: { specialized: [], baseConfirmed: true },
     assigned_crew_size: 1,
-    active_techs: []
+    active_techs: [],
+    tasks: [],
+    labor_ledger: []
   });
   const [activeModule, setActiveModule] = useState('DASHBOARD');
   const [stokSearchQuery, setStokSearchQuery] = useState('');
   const [currentUser, setCurrentUser] = useState(DataBridge.load('current_user') || null);
+  const [allJobs, setAllJobs] = useState([]);
   const [userRole, setUserRole] = useState('ADMIN'); 
   const [isKioskMode, setIsKioskMode] = useState(false);
 
@@ -237,6 +227,28 @@ const CoreApp = () => {
     if (latestSubs) setSubscriptions(latestSubs);
   }, [activeModule]);
   
+  // REUSABLE SYNC FUNCTION
+  const fetchCloudData = () => {
+    DataBridge.pullCloudSync().then(serverJobs => {
+      if (serverJobs && serverJobs.length > 0) {
+        setAllJobs(serverJobs);
+        const currentId = activeJob?.jobId || activeJob?.id;
+        const updated = serverJobs.find(j => j.jobId === currentId || j.id === currentId);
+        if (updated) {
+          setActiveJob(updated);
+        } else {
+          // Automatically default to the newest job created on Mobile
+          setActiveJob(serverJobs[serverJobs.length - 1]);
+        }
+      }
+    });
+  };
+
+  // CLOUD SYNC: Pull latest jobs from Python backend on mount
+  useEffect(() => {
+    fetchCloudData();
+  }, []); // Empty array ensures this only fires once when the web app loads
+
   // NATIVE ROUTING: Intercept enrollment tokens gracefully
   const urlParams = new URLSearchParams(window.location.search);
   const enrollToken = urlParams.get('enroll');
@@ -253,6 +265,9 @@ const CoreApp = () => {
 
   // 3. GATEKEEPER WRAPPER: Handles the "Blind Spot" Blur Logic
   const TrialGatekeeper = ({ children, moduleKey, moduleName }) => {
+    // MASTER KEY: Admins automatically bypass all subscription locks
+    if (currentUser?.permissions?.includes('ADMIN')) return children;
+
     const status = DataBridge.checkTrialStatus(moduleKey);
     const mod = subscriptions[moduleKey];
 
@@ -310,10 +325,28 @@ const CoreApp = () => {
     <div className="flex flex-col h-screen bg-black text-slate-200 overflow-hidden relative">
       <header className="flex justify-between items-center p-4 border-b border-slate-800 bg-slate-950">
         <div className="flex gap-4">
-          <div className="bg-slate-900 border border-slate-800 px-4 py-2 rounded-xl text-center">
-            <span className="block text-[8px] font-black text-slate-500 uppercase">Active Unit</span>
-            <span className="block text-xs font-black text-emerald-500 uppercase">{activeJob.unit}</span>
-          </div>
+          <button 
+            onClick={() => {
+              if (allJobs.length < 2) return;
+              const currentIndex = allJobs.findIndex(j => (j.jobId || j.id) === (activeJob?.jobId || activeJob?.id));
+              const nextJob = allJobs[(currentIndex + 1) % allJobs.length];
+              setActiveJob(nextJob);
+              DataBridge.save('active_job_context', nextJob);
+            }}
+            className="bg-slate-900 border border-slate-800 px-4 py-2 rounded-xl text-left hover:bg-slate-800 active:scale-95 transition-all shadow-md cursor-pointer"
+          >
+            <span className="block text-[8px] font-black text-slate-500 uppercase mb-0.5">Active Asset (Tap to Cycle)</span>
+            <span className="block text-xs font-black text-emerald-500 uppercase">{activeJob?.jobId || activeJob?.id || 'NO JOB'} // {activeJob?.year || '????'} {activeJob?.make || 'Unknown'}</span>
+          </button>
+          
+          <button 
+             onClick={fetchCloudData}
+             className="bg-slate-900 border border-slate-800 px-4 py-2 rounded-xl flex flex-col items-center justify-center hover:bg-slate-800 active:scale-95 transition-all cursor-pointer shadow-md"
+          >
+             <RefreshCw size={14} className="text-blue-500 mb-0.5" />
+             <span className="text-[8px] font-black text-slate-500 uppercase">Sync</span>
+          </button>
+
           <div className="bg-slate-900 border border-slate-800 px-4 py-2 rounded-xl text-center flex items-center gap-3">
              <div>
                <span className="block text-[8px] font-black text-slate-500 uppercase">Identity Matrix</span>
@@ -339,7 +372,12 @@ const CoreApp = () => {
         
         {activeModule === 'PORT' && (
           <AccessGatekeeper requiredPermissions={['view_port']}>
-            <IgnitionPort activeJob={activeJob} onUpdateJob={(j) => { setActiveJob(j); DataBridge.save('active_job_context', j); }} />
+            <IgnitionPort 
+              activeJob={activeJob} 
+              allJobs={allJobs} 
+              onUpdateJob={(j) => { setActiveJob(j); DataBridge.save('active_job_context', j); }} 
+              onSelectJob={(j) => { setActiveJob(j); DataBridge.save('active_job_context', j); }} 
+            />
           </AccessGatekeeper>
         )}
 
@@ -358,6 +396,14 @@ const CoreApp = () => {
           </AccessGatekeeper>
         )}
 
+    {activeModule === 'CRM' && (
+      <AccessGatekeeper requiredPermissions={['view_crm']}>
+        <TrialGatekeeper moduleKey="CRM" moduleName="CRM // Client Directory">
+          <IgnitionCRM />
+        </TrialGatekeeper>
+      </AccessGatekeeper>
+    )}
+
         {activeModule === 'DASHBOARD' && (
           <div className="p-8 pb-32">
             <h1 className="text-4xl font-black italic mb-2 text-white">IGNITION OS</h1>
@@ -372,19 +418,24 @@ const CoreApp = () => {
                 { id: 'CIPHER', label: 'Cipher', icon: Search, color: 'text-indigo-400', bg: 'bg-slate-800' },
                 { id: 'STOK', label: 'Inventory', icon: Package, color: 'text-emerald-500', bg: 'bg-slate-800' },
                 { id: 'PROC', label: 'Vendors', icon: Store, color: 'text-orange-500', bg: 'bg-slate-800' },
+                { id: 'CRM', label: 'Clients', icon: Users, color: 'text-indigo-400', bg: 'bg-slate-800' },
                 { id: 'PROT', label: 'Margins', icon: ShieldCheck, color: 'text-teal-400', bg: 'bg-slate-800' },
-                { id: 'PORT', label: 'Portal', icon: Users, color: 'text-blue-300', bg: 'bg-slate-800' },
+                { id: 'PORT', label: 'Estimates', icon: DollarSign, color: 'text-emerald-400', bg: 'bg-slate-800' },
                 { id: 'MARKETPLACE', label: 'Market', icon: ShoppingCart, color: 'text-pink-500', bg: 'bg-slate-800' },
               ].map(app => {
                  const { isExpired } = DataBridge.checkTrialStatus(app.id);
+                 const mod = subscriptions[app.id];
+                 const isAdmin = currentUser?.permissions?.includes('ADMIN');
+                 const isLocked = !isAdmin && (!mod || (!mod.active && !mod.trialActive) || isExpired);
+                 
                  return (
                    <button 
                      key={app.id}
                      onClick={() => setActiveModule(app.id)}
                      className="flex flex-col items-center gap-3 relative transition-transform active:scale-90 group w-16 md:w-20"
                    >
-                     <div className={`w-[60px] h-[60px] md:w-[72px] md:h-[72px] rounded-[18px] md:rounded-[22px] flex items-center justify-center shadow-2xl border border-slate-700/80 bg-slate-800 ${isExpired ? 'opacity-40 grayscale' : 'group-hover:ring-2 ring-white/20 shadow-black'}`}>
-                        {isExpired && (
+                     <div className={`w-[60px] h-[60px] md:w-[72px] md:h-[72px] rounded-[18px] md:rounded-[22px] flex items-center justify-center shadow-2xl border border-slate-700/80 bg-slate-800 ${isLocked ? 'opacity-40 grayscale' : 'group-hover:ring-2 ring-white/20 shadow-black'}`}>
+                        {isLocked && (
                            <div className="absolute -top-1 -right-1 bg-slate-900 border border-slate-700 p-1.5 rounded-full z-10 shadow-black shadow-xl">
                              <Lock size={12} className="text-red-500" />
                            </div>
@@ -471,8 +522,8 @@ const CoreApp = () => {
           <span className="text-[9px] font-black uppercase">HUB</span>
         </button>
         <button onClick={() => setActiveModule('PORT')} className={`flex flex-col items-center gap-1 ${activeModule === 'PORT' ? 'text-sky-500' : 'text-slate-500'}`}>
-          <Users size={20} />
-          <span className="text-[9px] font-black uppercase">PORTAL</span>
+          <DollarSign size={20} />
+          <span className="text-[9px] font-black uppercase">Estimates</span>
         </button>
         <button onClick={() => setActiveModule('OMNI')} className={`flex flex-col items-center gap-1 ${activeModule === 'OMNI' ? 'text-yellow-500' : 'text-slate-500'}`}>
           <BarChart3 size={20} />
