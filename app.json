@@ -15,13 +15,19 @@
       "**/*"
     ],
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.ignitionos.app"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#020617"
-      }
-    }
+      },
+      "package": "com.ignitionos.app"
+    },
+    "plugins": [
+      "expo-dev-client",
+      "expo-camera"
+    ]
   }
 }

@@ -13,9 +13,11 @@
   "description": "",
   "dependencies": {
     "@expo/metro-runtime": "~6.1.2",
+    "@react-native-ml-kit/text-recognition": "^2.0.0",
     "expo": "~54.0.0",
     "expo-audio": "~1.1.1",
     "expo-camera": "~17.0.10",
+    "expo-dev-client": "~6.0.21",
     "expo-haptics": "~15.0.8",
     "lucide-react": "^1.8.0",
     "lucide-react-native": "latest",

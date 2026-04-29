@@ -35,8 +35,25 @@ export default function CustomerEstimate({ selectedJob }) {
             <AlertCircle color="#f59e0b" size={16} />
             <Text style={[styles.sectionLabel, { color: '#f59e0b', marginBottom: 0, marginLeft: 8 }]}>REPORTED ISSUE</Text>
           </View>
-          <Text style={styles.mainText}>{selectedJob.problem || 'No specific problem reported.'}</Text>
+          <Text style={styles.mainText}>{selectedJob.complaint || selectedJob.problem || 'No specific problem reported.'}</Text>
         </View>
+
+        {/* ADVISORY NOTES */}
+        {(selectedJob.advisories) ? (
+          <View style={[styles.card, { borderColor: '#94a3b8', backgroundColor: 'rgba(148, 163, 184, 0.05)' }]}>
+            <View style={styles.cardHeader}>
+              <AlertCircle color="#94a3b8" size={16} />
+              <Text style={[styles.sectionLabel, { color: '#94a3b8', marginBottom: 0, marginLeft: 8 }]}>ADVISORY NOTES</Text>
+            </View>
+            <Text style={styles.advisoryNote}>NOT AUTHORIZED FOR THIS VISIT</Text>
+            {selectedJob.advisories.split('\n').filter(Boolean).map((line, i) => (
+              <Text key={i} style={styles.advisoryItem}>· {line}</Text>
+            ))}
+            {!selectedJob.advisories.includes('\n') && (
+              <Text style={styles.advisoryItem}>· {selectedJob.advisories}</Text>
+            )}
+          </View>
+        ) : null}
 
         {/* TECH EVAL / TRANSCRIPTION */}
         <View style={[styles.card, { borderColor: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.05)' }]}>

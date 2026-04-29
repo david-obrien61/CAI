@@ -7,6 +7,7 @@
 
 import React, { useState, useEffect } from 'react';
 import DataBridge from './DataBridge';
+import OnboardingWizard from './OnboardingWizard';
 import IgnitionFlux from './modules/IgnitionFlux';
 import PredictiveKey from './modules/PredictiveKey';
 import AdminSubscription from './modules/AdminSubscription';
@@ -20,7 +21,8 @@ import IgnitionHub from './modules/IgnitionHub';
 import IgnitionProc from './modules/IgnitionProc';
 import IgnitionCRM from './modules/IgnitionCRM';
 import IgnitionCompliance from './modules/IgnitionCompliance';
-import { Lock, LayoutDashboard, Truck, Activity, ShoppingCart, Search, Package, BarChart3, ShieldCheck, Users, Map, Store, ScanLine, QrCode, DollarSign, RefreshCw, UserPlus, ClipboardCheck } from 'lucide-react';
+import IgnitionAdmin from './modules/IgnitionAdmin';
+import { Lock, LayoutDashboard, Truck, Activity, ShoppingCart, Search, Package, BarChart3, ShieldCheck, Users, Map, Store, ScanLine, QrCode, DollarSign, RefreshCw, UserPlus, ClipboardCheck, Cog } from 'lucide-react';
 
 /**
  * UI: The Enrollment Generator & Gate
@@ -195,7 +197,7 @@ const IdentityMatrix = ({ onLogin }) => {
          </button>
          
          <p className="text-[8px] font-black text-slate-600 uppercase mt-8 tracking-widest">
-           SysAdmin: 0000 // Tech: 1111 // Front: 1234
+           Admin: 1111 // Tech: 1234 // Service: 2222
          </p>
        </div>
     </div>
@@ -203,7 +205,13 @@ const IdentityMatrix = ({ onLogin }) => {
 };
 
 const CoreApp = () => {
-  // 1. HOISTED STATE: Subscriptions & Active Job
+  // 1. FIRST-RUN GATE
+  const [onboardingDone, setOnboardingDone] = useState(() => {
+    const policy = DataBridge.load('shop_policy');
+    return policy?.onboarding_complete === true;
+  });
+
+  // 2. HOISTED STATE: Subscriptions & Active Job
   const [subscriptions, setSubscriptions] = useState(DataBridge.load('system_subscriptions') || {});
   const [activeJob, setActiveJob] = useState(DataBridge.load('active_job_context') || {
     id: 'JOB-1102',
@@ -249,6 +257,18 @@ const CoreApp = () => {
   useEffect(() => {
     fetchCloudData();
   }, []); // Empty array ensures this only fires once when the web app loads
+
+  // ONBOARDING GATE: First-run wizard before anything else
+  if (!onboardingDone) {
+    return (
+      <OnboardingWizard
+        onComplete={() => {
+          setOnboardingDone(true);
+          setCurrentUser(DataBridge.load('current_user'));
+        }}
+      />
+    );
+  }
 
   // NATIVE ROUTING: Intercept enrollment tokens gracefully
   const urlParams = new URLSearchParams(window.location.search);
@@ -424,6 +444,7 @@ const CoreApp = () => {
                 { id: 'PORT', label: 'Estimates', icon: DollarSign, color: 'text-emerald-400', bg: 'bg-slate-800' },
                 { id: 'COMPLIANCE', label: 'Compliance', icon: ClipboardCheck, color: 'text-red-500', bg: 'bg-slate-800' },
                 { id: 'MARKETPLACE', label: 'Market', icon: ShoppingCart, color: 'text-pink-500', bg: 'bg-slate-800' },
+                { id: 'ADMIN', label: 'Admin', icon: Cog, color: 'text-slate-400', bg: 'bg-slate-800' },
               ].map(app => {
                  const { isExpired } = DataBridge.checkTrialStatus(app.id);
                  const mod = subscriptions[app.id];
@@ -513,6 +534,12 @@ const CoreApp = () => {
         {activeModule === 'MARKETPLACE' && (
           <AccessGatekeeper requiredPermissions={['view_marketplace']}>
             <AdminSubscription />
+          </AccessGatekeeper>
+        )}
+
+        {activeModule === 'ADMIN' && (
+          <AccessGatekeeper requiredPermissions={['manage_users']}>
+            <IgnitionAdmin />
           </AccessGatekeeper>
         )}
       </main>

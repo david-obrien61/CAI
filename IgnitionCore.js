@@ -11,6 +11,7 @@ import IgnitionOmni from './modules/IgnitionOmniDashboard';
 import IgnitionKosk from './modules/IgnitionKosk';
 import IgnitionPort from './modules/IgnitionPort';
 import EnrollmentCatch from './EnrollmentCatch';
+import OnboardingWizard from './OnboardingWizard';
 
 /**
  * HOOK: useSessionGuard
@@ -92,7 +93,13 @@ const IdentityRequiredSplash = () => {
 
 const IgnitionCore = () => {
   useSessionGuard();
-  
+
+  // First-run gate: show onboarding wizard until shop is set up
+  const shopPolicy = DataBridge.load('shop_policy');
+  if (!shopPolicy?.onboarding_complete) {
+    return <OnboardingWizard />;
+  }
+
   const currentUser = DataBridge.load('current_user');
 
   const VersionBadge = () => (

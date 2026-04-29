@@ -88,6 +88,10 @@ const DataBridge = {
       tier: 'string (LITE | PRO | PLATINUM)',
       enable_price_audit: 'boolean',
       enable_bay_custody: 'boolean',
+      autoLockEnabled: 'boolean',
+      onboarding_complete: 'boolean',
+      onboarding_path: 'string (MARGIN | DIAGNOSE | MIGRATE)',
+      onboarding_completed_at: 'ISOString|null',
       featureLevels: {
         hardware: 'number',
         leaderboard: 'number'
@@ -96,7 +100,55 @@ const DataBridge = {
     },
     vendor_directory: 'array',
     customers_directory: 'array',
-    available_blocks: 'array'
+    available_blocks: 'array',
+
+    margin_config: {
+      slabs: [{ label: 'string', maxCost: 'number|null', multiplier: 'number' }],
+      tierDiscounts: { FLEET: 'number', LEGACY: 'number', FF: 'number' }
+    },
+
+    external_connections: {
+      quickbooks: { connected: 'boolean', realmId: 'string|null', companyName: 'string|null', connectedAt: 'ISOString|null', lastSync: 'ISOString|null' },
+      csv: { lastImport: 'ISOString|null', recordsImported: 'number' }
+    },
+
+    margin_change_log: [{
+      id: 'string',
+      changed_by: 'user_id',
+      changed_at: 'ISOString',
+      field_changed: 'string',
+      category: 'string (SLAB | LABOR | TIER_OFFSET | OVERHEAD)',
+      old_value: 'any',
+      new_value: 'any',
+      reason: 'string'
+    }],
+
+    overhead_config: {
+      monthly: {
+        rent: 'number',
+        electric: 'number',
+        fuel: 'number',
+        insurance: 'number',
+        maintenance: 'number',
+        other: [{ label: 'string', amount: 'number' }]
+      },
+      last_updated: 'ISOString',
+      updated_by: 'user_id'
+    },
+
+    invoice_history: [{
+      id: 'string',
+      qboId: 'string',
+      customerId: 'string',
+      customerName: 'string',
+      date: 'string',
+      total: 'number',
+      balance: 'number',
+      paid: 'number',
+      status: 'string (PAID | UNPAID | PARTIAL)',
+      lineItems: 'array',
+      source: 'string'
+    }]
   },
   
   syncQueue: [],
@@ -266,7 +318,67 @@ const DataBridge = {
   },
 
   /**
-   * PRICING: Margin Matrix hooks for PROT -> CODE integration
+   * PRICING: Unified margin config (replaces prot_matrix as single source of truth).
+   * MarginEngine reads this directly; these methods are for saving/logging changes.
+   */
+  getMarginConfig: () => {
+    return DataBridge.load('margin_config') || {
+      slabs: [
+        { label: 'Consumables', maxCost: 50,   multiplier: 4.0  },
+        { label: 'Mid-Range',   maxCost: 200,  multiplier: 2.0  },
+        { label: 'Heavy',       maxCost: 1000, multiplier: 1.5  },
+        { label: 'Major',       maxCost: null, multiplier: 1.25 },
+      ],
+      tierDiscounts: { FLEET: 10, LEGACY: 20, FF: 5 },
+    };
+  },
+
+  setMarginConfig: (newConfig, userId) => {
+    const oldConfig = DataBridge.load('margin_config') || {};
+    DataBridge.save('margin_config', newConfig);
+
+    // Log each changed slab multiplier
+    const oldSlabs = oldConfig.slabs || [];
+    (newConfig.slabs || []).forEach((slab, i) => {
+      const old = oldSlabs[i];
+      if (!old || old.multiplier !== slab.multiplier) {
+        DataBridge.logMarginChange({
+          field_changed: `slabs[${i}].multiplier (${slab.label})`,
+          category: 'SLAB',
+          old_value: old?.multiplier ?? null,
+          new_value: slab.multiplier,
+          changed_by: userId || 'SYSTEM',
+        });
+      }
+      if (!old || old.maxCost !== slab.maxCost) {
+        DataBridge.logMarginChange({
+          field_changed: `slabs[${i}].maxCost (${slab.label})`,
+          category: 'SLAB',
+          old_value: old?.maxCost ?? null,
+          new_value: slab.maxCost,
+          changed_by: userId || 'SYSTEM',
+        });
+      }
+    });
+
+    // Log changed tier discounts
+    const oldDiscounts = oldConfig.tierDiscounts || {};
+    Object.entries(newConfig.tierDiscounts || {}).forEach(([tier, val]) => {
+      if (oldDiscounts[tier] !== val) {
+        DataBridge.logMarginChange({
+          field_changed: `tierDiscounts.${tier}`,
+          category: 'TIER_OFFSET',
+          old_value: oldDiscounts[tier] ?? null,
+          new_value: val,
+          changed_by: userId || 'SYSTEM',
+        });
+      }
+    });
+  },
+
+  /**
+   * PRICING: Legacy prot_matrix kept for backward compatibility with IgnitionCipher.
+   * New code should use MarginEngine directly.
    */
   getProtMatrix: () => {
     return DataBridge.load('prot_matrix') || { anchor: 40, fleetOffset: 10, legacyOffset: 20, ffFlat: 5 };
@@ -308,11 +420,14 @@ const DataBridge = {
    * SECURITY & LABOR REGISTRY
    */
   getProfiles: () => {
-    return DataBridge.load('user_profiles') || {
-      '1111': { id: '1111', name: 'A. MANAGER', role: 'ADMIN', allowed: ['intake', 'queue', 'vin', 'voice', 'estimates', 'parts', 'procure', 'tools', 'inv', 'admin', 'fleet'], preferences: { pinnedSpecs: ['Model Year', 'Make', 'Model'] }, hasSignedWaiver: true, permissions: ["ADMIN", "TECH"] },
+    const saved = DataBridge.load('user_profiles');
+    if (saved && Object.keys(saved).length > 0) return saved;
+    // Default seed profiles — overwritten after onboarding creates the owner account
+    return {
+      '1111': { id: '1111', name: 'A. MANAGER', role: 'ADMIN', allowed: ['intake', 'queue', 'vin', 'voice', 'estimates', 'parts', 'procure', 'tools', 'inv', 'admin', 'fleet'], preferences: { pinnedSpecs: ['Model Year', 'Make', 'Model'] }, hasSignedWaiver: true, permissions: ["ADMIN", "TECH", "PRICING_AUTHORITY"] },
       '1234': { id: '1234', name: 'T. OBRIEN', role: 'TECHNICIAN', allowed: ['queue', 'vin', 'voice', 'parts', 'tools'], preferences: { pinnedSpecs: ['Model Year', 'Make', 'Model', 'Displacement (L)'] }, hasSignedWaiver: false, permissions: ["TECH"] },
       '2222': { id: '2222', name: 'S. WRITER', role: 'SERVICE', allowed: ['intake', 'queue', 'vin', 'estimates', 'parts', 'procure'], preferences: { pinnedSpecs: ['Model Year', 'Make', 'Model'] }, hasSignedWaiver: true, permissions: ["TECH"] },
-      '3333': { id: '3333', name: 'L. PILOT', role: 'DEVELOPER', allowed: ['intake', 'queue', 'vin', 'voice', 'estimates', 'parts', 'procure', 'tools', 'inv', 'admin', 'fleet'], preferences: { pinnedSpecs: ['Model Year', 'Make', 'Model', 'VIN'] }, hasSignedWaiver: true, permissions: ["ADMIN", "TECH"] }
+      '3333': { id: '3333', name: 'L. PILOT', role: 'DEVELOPER', allowed: ['intake', 'queue', 'vin', 'voice', 'estimates', 'parts', 'procure', 'tools', 'inv', 'admin', 'fleet'], preferences: { pinnedSpecs: ['Model Year', 'Make', 'Model', 'VIN'] }, hasSignedWaiver: true, permissions: ["ADMIN", "TECH", "PRICING_AUTHORITY"] }
     };
   },
 
@@ -341,18 +456,95 @@ const DataBridge = {
 
   setSystemRates: (newRates, adminId) => {
     const config = DataBridge.load('system_config') || {};
+    const oldRates = config.laborRates || DataBridge.getSystemRates();
     config.laborRates = newRates;
     DataBridge.save('system_config', config);
 
-    // Audit log appending mapping
+    // Write to admin audit log
     const ledger = DataBridge.load('admin_audit_log') || [];
-    ledger.push({
-      action: 'UPDATE_LABOR_RATES',
-      newRates,
-      adminId: adminId || 'SYSTEM',
-      timestamp: Date.now()
-    });
+    ledger.push({ action: 'UPDATE_LABOR_RATES', newRates, adminId: adminId || 'SYSTEM', timestamp: Date.now() });
     DataBridge.save('admin_audit_log', ledger);
+
+    // Write to margin_change_log for analytics
+    Object.keys(newRates).forEach(field => {
+      if (oldRates[field] !== newRates[field]) {
+        DataBridge.logMarginChange({
+          field_changed: `laborRates.${field}`,
+          category: 'LABOR',
+          old_value: oldRates[field],
+          new_value: newRates[field],
+          changed_by: adminId || 'SYSTEM',
+        });
+      }
+    });
+  },
+
+  /**
+   * LOG_MARGIN_CHANGE: Appends a timestamped entry to margin_change_log for analytics.
+   */
+  logMarginChange: ({ field_changed, category, old_value, new_value, changed_by, reason = '' }) => {
+    const log = DataBridge.load('margin_change_log') || [];
+    log.push({
+      id: `MCL-${Date.now()}`,
+      changed_by: changed_by || 'SYSTEM',
+      changed_at: new Date().toISOString(),
+      field_changed,
+      category,
+      old_value,
+      new_value,
+      reason,
+    });
+    DataBridge.save('margin_change_log', log);
+  },
+
+  /**
+   * GET/SET OVERHEAD CONFIG
+   */
+  getOverhead: () => {
+    return DataBridge.load('overhead_config') || {
+      monthly: { rent: 0, electric: 0, fuel: 0, insurance: 0, maintenance: 0, other: [] },
+      last_updated: null,
+      updated_by: null,
+    };
+  },
+
+  setOverhead: (monthly, userId) => {
+    const current = DataBridge.getOverhead();
+    DataBridge.save('overhead_config', {
+      monthly,
+      last_updated: new Date().toISOString(),
+      updated_by: userId || 'SYSTEM',
+    });
+    DataBridge.logMarginChange({
+      field_changed: 'overhead_config.monthly',
+      category: 'OVERHEAD',
+      old_value: current.monthly,
+      new_value: monthly,
+      changed_by: userId || 'SYSTEM',
+    });
+  },
+
+  /**
+   * RECORD TRANSACTION: Stamps each sale with margin metadata for quarterly analytics.
+   */
+  recordTransaction: (tx) => {
+    const rates = DataBridge.getSystemRates();
+    const margin = DataBridge.getActiveMargin(tx.tier || 'STANDARD');
+    const d = new Date();
+    const quarter = `Q${Math.ceil((d.getMonth() + 1) / 3)}-${d.getFullYear()}`;
+
+    const enriched = {
+      ...tx,
+      margin_at_time: margin,
+      labor_rate_at_time: rates.BASE,
+      quarter,
+      timestamp: tx.timestamp || Date.now(),
+    };
+
+    const history = DataBridge.load('transaction_history') || [];
+    history.push(enriched);
+    DataBridge.save('transaction_history', history);
+    return enriched;
   },
 
   /**
