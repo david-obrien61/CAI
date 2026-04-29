@@ -16,6 +16,7 @@ export default function IgnitionVoice({ selectedJob, onApprove }) {
   const [isParsing, setIsParsing] = useState(false);
   const [transcription, setTranscription] = useState('');
   const [suggestedParts, setSuggestedParts] = useState([]);
+  const [suggestedTasks, setSuggestedTasks] = useState([]);
   const [isApproved, setIsApproved] = useState(false);
 
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
@@ -38,15 +39,29 @@ export default function IgnitionVoice({ selectedJob, onApprove }) {
 
         // Connect to your local Python API! 
         // Note: Change 'localhost' to your computer's local network IP (e.g., 192.168.1.x) if testing on a physical iPhone/Android.
-        // If using an Android Emulator, use '10.0.2.2'.
-        const response = await fetch('http://192.168.1.14:8000/transcribe', {
+        const apiUrl = window?.location?.hostname === 'localhost' 
+          ? 'http://localhost:8000/transcribe' 
+          : 'http://192.168.1.14:8000/transcribe';
+          
+        const response = await fetch(apiUrl, {
           method: 'POST',
           body: formData,
         });
         
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error("Backend Error:", errorText);
+          alert("Transcription Failed: Check your Python terminal for errors.");
+          throw new Error(`HTTP ${response.status}: ${errorText}`);
+        }
+
         const data = await response.json();
         setTranscription(data.transcription);
-        setSuggestedParts(data.partsManifest);
+        
+        // Extract flat list of parts from tasks, and keep the tasks array
+        const extractedParts = data.tasks ? data.tasks.flatMap(t => t.parts || []) : [];
+        setSuggestedParts(extractedParts);
+        setSuggestedTasks(data.tasks || []);
       } catch (err) {
         console.error("Transcription error: ", err);
       } finally {
@@ -78,7 +93,7 @@ export default function IgnitionVoice({ selectedJob, onApprove }) {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setIsApproved(true);
     // Pass the extracted data up to App.js to update the job record
-    setTimeout(() => onApprove(transcription, suggestedParts), 1000);
+    setTimeout(() => onApprove(transcription, suggestedParts, suggestedTasks), 1000);
   };
 
   return (

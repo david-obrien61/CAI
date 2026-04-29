@@ -4,15 +4,16 @@ from google import genai
 from google.genai import types
 from typing import List, Dict
 from pydantic import BaseModel, Field
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi.responses import PlainTextResponse
 import uvicorn
 from fastapi.middleware.cors import CORSMiddleware
 import json
 import os
 from dotenv import load_dotenv
 
-# Load environment variables from the .env file
-load_dotenv()
+# Load environment variables from the .env file (override=True forces it to ignore cached terminal variables)
+load_dotenv(override=True)
 
 # ==========================================
 # Configure Gemini API
@@ -124,6 +125,17 @@ async def transcribe_audio(file: UploadFile = File(...)):
         print("Uploading audio to Gemini...")
         audio_file = client.files.upload(file=temp_audio_path)
 
+        # Wait for the file to finish processing on Google's end
+        state = getattr(audio_file.state, "name", str(audio_file.state))
+        while "PROCESSING" in state:
+            print("Processing audio on Gemini...", flush=True)
+            time.sleep(2)
+            audio_file = client.files.get(name=audio_file.name)
+            state = getattr(audio_file.state, "name", str(audio_file.state))
+            
+        if "FAILED" in state:
+            raise Exception("Gemini failed to process the audio file.")
+
         # 3. Prompt Gemini with strict JSON instructions
         prompt = """
         You are a master diesel mechanic and service writer. 
@@ -152,14 +164,32 @@ async def transcribe_audio(file: UploadFile = File(...)):
             config=types.GenerateContentConfig(response_mime_type="application/json")
         )
         
-        # Clean up the file from Google's servers
-        client.files.delete(name=audio_file.name)
-
         # 4. Parse JSON and return to mobile app
-        result = json.loads(response.text)
+        raw_text = response.text
+        print(f"RAW GEMINI RESPONSE:\n{raw_text}")
+        
+        # Strip markdown code blocks if Gemini accidentally included them
+        if raw_text.strip().startswith("```"):
+            raw_text = raw_text.strip().strip("`").replace("json\n", "", 1)
+            
+        result = json.loads(raw_text)
         return TranscriptionResponse(**result)
 
+    except Exception as e:
+        import traceback
+        print("\n--- ERROR IN TRANSCRIBE ---")
+        traceback.print_exc()
+        print("---------------------------\n")
+        return PlainTextResponse(content=f"Server Error: {str(e)}", status_code=500)
+
     finally:
+        # Clean up the file from Google's servers
+        try:
+            if 'audio_file' in locals() and audio_file.name:
+                client.files.delete(name=audio_file.name)
+        except Exception:
+            pass
+            
         # Clean up local temp file
         if os.path.exists(temp_audio_path):
             os.remove(temp_audio_path)

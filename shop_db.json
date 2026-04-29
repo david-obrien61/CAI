@@ -206,9 +206,52 @@
             "vin": "YV1672MK8D2250393",
             "problem": "Bleed out ",
             "jobId": "JOB-1868",
-            "status": "READY",
+            "status": "NEEDS_ESTIMATE",
             "engine": "2.4L I4 DOHC",
-            "isValidated": true
+            "isValidated": true,
+            "transcription": "Testing the diagnostic. Both front calipers are bad, need to replace them and the brake pads.",
+            "suggestedParts": [
+                {
+                    "name": "Front Brake Caliper (Left)",
+                    "qty": 1
+                },
+                {
+                    "name": "Front Brake Caliper (Right)",
+                    "qty": 1
+                },
+                {
+                    "name": "Front Brake Pad Set (Axle Set)",
+                    "qty": 1
+                },
+                {
+                    "name": "DOT 4 Brake Fluid",
+                    "qty": 2
+                }
+            ],
+            "tasks": [
+                {
+                    "description": "Replace both front brake calipers and front brake pads, including system bleed and road test.",
+                    "suggested_hours": 4.5,
+                    "parts": [
+                        {
+                            "name": "Front Brake Caliper (Left)",
+                            "qty": 1
+                        },
+                        {
+                            "name": "Front Brake Caliper (Right)",
+                            "qty": 1
+                        },
+                        {
+                            "name": "Front Brake Pad Set (Axle Set)",
+                            "qty": 1
+                        },
+                        {
+                            "name": "DOT 4 Brake Fluid",
+                            "qty": 2
+                        }
+                    ]
+                }
+            ]
         }
     ]
 }

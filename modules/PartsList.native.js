@@ -6,7 +6,8 @@
  */
 
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, SafeAreaView } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Database, Activity, X, Pin, PinOff, ChevronLeft, ChevronRight, Mic } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 

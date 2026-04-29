@@ -84,8 +84,22 @@ const IgnitionPort = ({ activeJob, allJobs = [], onUpdateJob, onSelectJob }) => 
                 const jobRate = job?.customerTier === 'FLEET' ? rates.BASE - 10 : (job?.customerTier === 'FF' ? rates.BASE - 25 : rates.BASE);
                 setLaborRate(jobRate);
                 
-                // Prepopulate Tasks array instead of global labor hours
-                let initialTasks = job?.tasks || [];
+                // 1. Give AI-generated Parts a unique ID so React doesn't crash
+                const enrichedParts = (job?.suggestedParts || []).map((p, idx) => ({
+                  ...p,
+                  id: p.id || `PART-${Date.now()}-${idx}`
+                }));
+
+                // 2. Give AI-generated Tasks a unique ID and map estimated hours to billed hours
+                let initialTasks = (job?.tasks || []).map((t, idx) => ({
+                  ...t,
+                  id: t.id || `TASK-${Date.now()}-${idx}`,
+                  description: t.description || 'General Labor',
+                  suggested_hours: t.suggested_hours || 0,
+                  billed_hours: t.billed_hours !== undefined ? t.billed_hours : (t.suggested_hours || 0),
+                  rate: t.rate || jobRate
+                }));
+
                 if (initialTasks.length === 0) {
                   if (job?.transcription?.toLowerCase().includes('turbo')) {
                     initialTasks.push({ id: `TASK-${Date.now()}`, description: 'Turbocharger R&R', suggested_hours: 3.5, billed_hours: 3.5, rate: jobRate });
@@ -96,18 +110,20 @@ const IgnitionPort = ({ activeJob, allJobs = [], onUpdateJob, onSelectJob }) => 
                 setTasks(initialTasks);
                 setIncidentals(job?.incidentals || '35.00');
 
-                // Prepopulate part costs and vendors so the estimator doesn't start with blank fields
+                // 3. Prepopulate part costs and vendors so the estimator doesn't start with blank fields
                 const initialPricing = {};
-                if (job?.suggestedParts) {
-                  job.suggestedParts.forEach((p, idx) => {
-                    let defaultCost = '45.00';
-                    if (p.name.toLowerCase().includes('turbo')) defaultCost = '450.00';
-                    if (p.name.toLowerCase().includes('oil')) defaultCost = '15.00';
-                    if (p.name.toLowerCase().includes('gasket')) defaultCost = '28.50';
-                    initialPricing[p.id] = { source: 'VENDOR', vendor: vendors[idx % vendors.length]?.name || 'NAPA Auto Parts', cost: defaultCost, locked: false };
-                  });
-                }
+                enrichedParts.forEach((p, idx) => {
+                  let defaultCost = '45.00';
+                  if (p.name.toLowerCase().includes('turbo')) defaultCost = '450.00';
+                  if (p.name.toLowerCase().includes('oil')) defaultCost = '15.00';
+                  if (p.name.toLowerCase().includes('gasket')) defaultCost = '28.50';
+                  initialPricing[p.id] = { source: 'VENDOR', vendor: vendors[idx % vendors.length]?.name || 'NAPA Auto Parts', cost: defaultCost, locked: false };
+                });
                 setPricingData(initialPricing);
+
+                // Pass the enriched data back into activeJob so the UI has the IDs
+                const updatedJob = { ...job, suggestedParts: enrichedParts, tasks: initialTasks };
+                if (onSelectJob) onSelectJob(updatedJob);
 
                 setViewMode('BUILDER');
               }}
@@ -220,15 +236,28 @@ const IgnitionPort = ({ activeJob, allJobs = [], onUpdateJob, onSelectJob }) => 
         </button>
 
         <header className="mb-8 border-b border-slate-800 pb-4">
-          <h2 className="text-2xl font-black italic text-white uppercase tracking-tighter text-emerald-500">Estimate Builder</h2>
-          <p className="text-[10px] font-mono text-slate-500 uppercase tracking-widest">WO #{data.id} // {data.vehicle}</p>
+          <div className="flex justify-between items-start">
+            <div>
+              <h2 className="text-sm font-black italic uppercase tracking-tighter text-emerald-500 mb-1">Estimate Builder</h2>
+              <h3 className="text-3xl font-black text-white uppercase tracking-tighter">{activeJob?.name || 'Unknown Customer'}</h3>
+              <p className="text-lg font-bold text-slate-300 uppercase tracking-wide">{data.vehicle}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-xs font-mono text-slate-500 uppercase tracking-widest mt-6">WO #{data.id}</p>
+            </div>
+          </div>
         </header>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* LEFT: AI TRANSCRIPTION & PARTS */}
           <div className="lg:col-span-1 space-y-6">
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl">
-              <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest mb-4">Tech Diagnostic Notes</h3>
+              <h3 className="text-xs font-black text-orange-500 uppercase tracking-widest mb-4">Reported Issue</h3>
+              <p className="text-sm text-slate-300 italic leading-relaxed">"{activeJob?.problem || 'No specific problem reported during intake.'}"</p>
+            </div>
+            
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl">
+              <h3 className="text-xs font-black text-blue-500 uppercase tracking-widest mb-4">Tech Diagnostic Notes</h3>
               <p className="text-sm text-slate-300 italic leading-relaxed">"{activeJob?.transcription || 'No diagnostic notes provided.'}"</p>
             </div>
             
@@ -426,8 +455,16 @@ const IgnitionPort = ({ activeJob, allJobs = [], onUpdateJob, onSelectJob }) => 
         <ArrowLeft size={14} /> Back to Builder
       </button>
       <header className="mb-8 border-b border-slate-800 pb-4">
-        <h1 className="text-2xl font-black text-emerald-500 uppercase italic tracking-tighter">Customer Authorization</h1>
-        <p className="text-[10px] font-mono text-slate-500 uppercase tracking-widest">WO #{data.id} // {data.vehicle}</p>
+        <div className="flex justify-between items-start">
+          <div>
+            <h1 className="text-sm font-black text-emerald-500 uppercase italic tracking-tighter mb-1">Customer Authorization</h1>
+            <h3 className="text-3xl font-black text-white uppercase tracking-tighter">{activeJob?.name || 'Unknown Customer'}</h3>
+            <p className="text-lg font-bold text-slate-300 uppercase tracking-wide">{data.vehicle}</p>
+          </div>
+          <div className="text-right">
+            <p className="text-xs font-mono text-slate-500 uppercase tracking-widest mt-6">WO #{data.id}</p>
+          </div>
+        </div>
       </header>
 
       {/* ITEM SUMMARY */}

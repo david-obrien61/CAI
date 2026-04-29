@@ -90,8 +90,8 @@ const ModuleRouter = ({
       return (
         <IgnitionVoice 
           selectedJob={selectedJob} 
-          onApprove={(notes, parts) => {
-            updateJob(selectedJob.jobId, { transcription: notes, suggestedParts: parts, status: 'NEEDS_ESTIMATE' });
+          onApprove={(notes, parts, tasks) => {
+            updateJob(selectedJob.jobId, { transcription: notes, suggestedParts: parts, tasks: tasks, status: 'NEEDS_ESTIMATE' });
             setCurrentModule(null);
           }}
         />

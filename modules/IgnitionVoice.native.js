@@ -16,6 +16,7 @@ export default function IgnitionVoice({ selectedJob, onApprove }) {
   const [isParsing, setIsParsing] = useState(false);
   const [transcription, setTranscription] = useState('');
   const [suggestedParts, setSuggestedParts] = useState([]);
+  const [suggestedTasks, setSuggestedTasks] = useState([]);
   const [isApproved, setIsApproved] = useState(false);
 
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
@@ -38,9 +39,18 @@ export default function IgnitionVoice({ selectedJob, onApprove }) {
           body: formData,
         });
         
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error("Backend Error:", errorText);
+          alert("Transcription Failed: Check your Python terminal for errors.");
+          throw new Error(`HTTP ${response.status}: ${errorText}`);
+        }
+
         const data = await response.json();
         setTranscription(data.transcription);
-        setSuggestedParts(data.partsManifest);
+        const extractedParts = data.tasks ? data.tasks.flatMap(t => t.parts || []) : [];
+        setSuggestedParts(extractedParts);
+        setSuggestedTasks(data.tasks || []);
       } catch (err) {
         console.error("Transcription error: ", err);
       } finally {
@@ -68,7 +78,7 @@ export default function IgnitionVoice({ selectedJob, onApprove }) {
   const handleApprove = () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setIsApproved(true);
-    setTimeout(() => onApprove(transcription, suggestedParts), 1000);
+    setTimeout(() => onApprove(transcription, suggestedParts, suggestedTasks), 1000);
   };
 
   return (
