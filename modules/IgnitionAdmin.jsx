@@ -397,7 +397,7 @@ const StaffTab = () => {
   const [expandedId, setExpandedId] = useState(null);
 
   const currentUser = DataBridge.load('current_user');
-  const users = Object.values(profiles);
+  const users = Object.entries(profiles).map(([pin, p]) => ({ ...p, id: p.id || pin }));
 
   const refresh = () => setProfiles(DataBridge.getProfiles());
 

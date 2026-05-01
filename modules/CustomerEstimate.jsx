@@ -49,9 +49,6 @@ export default function CustomerEstimate({ selectedJob }) {
             {selectedJob.advisories.split('\n').filter(Boolean).map((line, i) => (
               <Text key={i} style={styles.advisoryItem}>· {line}</Text>
             ))}
-            {!selectedJob.advisories.includes('\n') && (
-              <Text style={styles.advisoryItem}>· {selectedJob.advisories}</Text>
-            )}
           </View>
         ) : null}
 
@@ -107,6 +104,8 @@ const styles = StyleSheet.create({
   partRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#1e293b' },
   partText: { color: '#e2e8f0', fontSize: 14, fontWeight: 'bold' },
   partQty: { color: '#8b5cf6', fontSize: 12, fontWeight: '900' },
+  advisoryNote: { color: '#64748b', fontSize: 9, fontWeight: '900', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 },
+  advisoryItem: { color: '#94a3b8', fontSize: 13, lineHeight: 20, marginBottom: 4 },
   sendBtn: { backgroundColor: '#10b981', flexDirection: 'row', height: 70, borderRadius: 24, justifyContent: 'center', alignItems: 'center', shadowColor: '#10b981', shadowOpacity: 0.3, shadowRadius: 10, shadowOffset: { width: 0, height: 5 }, marginTop: 10 },
   sendBtnText: { color: '#fff', fontWeight: '900', fontSize: 16, letterSpacing: 1, marginLeft: 10 }
 });

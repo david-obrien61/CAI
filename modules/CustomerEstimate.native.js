@@ -8,12 +8,16 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-nati
 import { FileSignature, AlertCircle, Mic, Wrench, Send } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 
-export default function CustomerEstimate({ selectedJob }) {
+export default function CustomerEstimate({ selectedJob, onSendToKiosk }) {
   if (!selectedJob) return null;
 
   const handleSend = () => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    alert("Estimate sent to customer for signature!");
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    if (onSendToKiosk) {
+      onSendToKiosk();
+    } else {
+      alert("Customer kiosk not available from this context.");
+    }
   };
 
   return (
@@ -40,7 +44,7 @@ export default function CustomerEstimate({ selectedJob }) {
             <AlertCircle color="#f59e0b" size={16} />
             <Text style={[styles.sectionLabel, { color: '#f59e0b', marginBottom: 0, marginLeft: 8 }]}>REPORTED ISSUE</Text>
           </View>
-          <Text style={styles.mainText}>{selectedJob.problem || 'No specific problem reported.'}</Text>
+          <Text style={styles.mainText}>{selectedJob.complaint || selectedJob.problem || 'No specific problem reported.'}</Text>
         </View>
 
         {/* TECH EVAL / TRANSCRIPTION */}

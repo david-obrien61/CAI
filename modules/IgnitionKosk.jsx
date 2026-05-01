@@ -10,6 +10,7 @@ import DataBridge from '../DataBridge';
 import { useIgnitionVoice } from '../hooks/useIgnitionVoice';
 import IgnitionHandover from './IgnitionHandover';
 import { usePowerSense } from '../hooks/usePowerSense';
+import SlideToComplete from './SlideToComplete';
 
 const IgnitionKosk = ({ activeJob, onUpdateJob, onExitKiosk }) => {
   const [isClockedIn, setIsClockedIn] = useState(false);
@@ -211,19 +212,20 @@ const IgnitionKosk = ({ activeJob, onUpdateJob, onExitKiosk }) => {
               <Mic size={20} className="text-blue-500" />
               <span className="text-xs font-black uppercase">Dictate Notes</span>
             </button>
-            <button className="flex-1 bg-white text-black p-4 rounded-2xl flex items-center justify-center gap-2 font-black active:bg-slate-200">
-              <CheckCircle size={20} />
-              <span className="text-xs font-black uppercase">Finish Job</span>
-            </button>
+          <div className="flex-1 flex items-center">
+             <SlideToComplete onComplete={() => {
+                DataBridge.smartSync('KOSK_TECH_ACTION', { action: "Complete Task", timestamp: Date.now() });
+                alert("Smart Action Triggered: Task Completed.");
+             }} />
+          </div>
           </div>
         </div>
       </div>
 
       {/* THE GREASEMONKEY FAST-ACTION BAR */}
       <div className="fixed bottom-0 left-0 right-0 p-4 bg-slate-900/90 backdrop-blur-md pb-24">
-        <button 
-          className="w-full bg-emerald-600 h-24 rounded-2xl flex items-center justify-center gap-4 active:bg-emerald-500 shadow-2xl transition-transform active:scale-[0.98]"
-          onClick={() => {
+        <SlideToComplete 
+          onComplete={() => {
             if (isDotMandated) {
                 alert("DOT MANDATE ACTIVE: Digital Inspection Form Required before completion.");
                 return;
@@ -231,14 +233,7 @@ const IgnitionKosk = ({ activeJob, onUpdateJob, onExitKiosk }) => {
             DataBridge.smartSync('KOSK_TECH_ACTION', { action: "Complete Inspection", timestamp: Date.now() });
             alert("Smart Action Triggered: Auto-advancing workflow! (Safety Gates Bypassed)");
           }}
-        >
-          <div className="bg-white/20 p-3 rounded-full animate-pulse">
-            <CheckCircle size={32} className="text-white" />
-          </div>
-          <span className="text-2xl font-black uppercase italic text-white tracking-widest">
-            {activeJob ? "Complete Inspection" : "Start New Job"}
-          </span>
-        </button>
+        />
       </div>
 
     </div>

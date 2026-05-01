@@ -413,6 +413,7 @@ const DataBridge = {
       crm: { id: 'crm', label: 'CRM', color: '#818cf8', active: true, cost: 49, trialDate: '2026-04-01' },
       fleet: { id: 'fleet', label: 'Fleet', color: '#06b6d4', active: true, cost: 199, trialDate: '2026-04-12' },
       inv: { id: 'inv', label: 'Stock AI', color: '#6366f1', active: true, cost: 89, trialDate: '2026-04-01' },
+      kiosk: { id: 'kiosk', label: 'Kiosk', color: '#10b981', active: true, cost: 0, trialDate: '2026-04-01' },
     };
   },
 
@@ -424,10 +425,10 @@ const DataBridge = {
     if (saved && Object.keys(saved).length > 0) return saved;
     // Default seed profiles — overwritten after onboarding creates the owner account
     return {
-      '1111': { id: '1111', name: 'A. MANAGER', role: 'ADMIN', allowed: ['intake', 'queue', 'vin', 'voice', 'estimates', 'parts', 'procure', 'tools', 'inv', 'admin', 'fleet'], preferences: { pinnedSpecs: ['Model Year', 'Make', 'Model'] }, hasSignedWaiver: true, permissions: ["ADMIN", "TECH", "PRICING_AUTHORITY"] },
-      '1234': { id: '1234', name: 'T. OBRIEN', role: 'TECHNICIAN', allowed: ['queue', 'vin', 'voice', 'parts', 'tools'], preferences: { pinnedSpecs: ['Model Year', 'Make', 'Model', 'Displacement (L)'] }, hasSignedWaiver: false, permissions: ["TECH"] },
-      '2222': { id: '2222', name: 'S. WRITER', role: 'SERVICE', allowed: ['intake', 'queue', 'vin', 'estimates', 'parts', 'procure'], preferences: { pinnedSpecs: ['Model Year', 'Make', 'Model'] }, hasSignedWaiver: true, permissions: ["TECH"] },
-      '3333': { id: '3333', name: 'L. PILOT', role: 'DEVELOPER', allowed: ['intake', 'queue', 'vin', 'voice', 'estimates', 'parts', 'procure', 'tools', 'inv', 'admin', 'fleet'], preferences: { pinnedSpecs: ['Model Year', 'Make', 'Model', 'VIN'] }, hasSignedWaiver: true, permissions: ["ADMIN", "TECH", "PRICING_AUTHORITY"] }
+      '1111': { id: '1111', name: 'A. MANAGER', role: 'ADMIN', allowed: ['intake', 'queue', 'vin', 'voice', 'estimates', 'parts', 'procure', 'tools', 'inv', 'admin', 'fleet', 'kiosk'], preferences: { pinnedSpecs: ['Model Year', 'Make', 'Model'] }, hasSignedWaiver: true, permissions: ["ADMIN", "TECH", "PRICING_AUTHORITY"] },
+      '1234': { id: '1234', name: 'T. OBRIEN', role: 'TECHNICIAN', allowed: ['queue', 'parts', 'tools'], preferences: { pinnedSpecs: ['Model Year', 'Make', 'Model', 'Displacement (L)'] }, hasSignedWaiver: false, permissions: ["TECH"] },
+      '2222': { id: '2222', name: 'S. WRITER', role: 'SERVICE', allowed: ['intake', 'queue', 'vin', 'estimates', 'parts', 'procure', 'kiosk'], preferences: { pinnedSpecs: ['Model Year', 'Make', 'Model'] }, hasSignedWaiver: true, permissions: ["TECH"] },
+      '3333': { id: '3333', name: 'L. PILOT', role: 'DEVELOPER', allowed: ['intake', 'queue', 'vin', 'voice', 'estimates', 'parts', 'procure', 'tools', 'inv', 'admin', 'fleet', 'kiosk'], preferences: { pinnedSpecs: ['Model Year', 'Make', 'Model', 'VIN'] }, hasSignedWaiver: true, permissions: ["ADMIN", "TECH", "PRICING_AUTHORITY"] }
     };
   },
 

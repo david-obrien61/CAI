@@ -24,6 +24,7 @@ import PartsList from './modules/PartsList';
 import IgnitionAdmin from './modules/IgnitionAdmin';
 import IgnitionVoice from './modules/IgnitionVoice';
 import CustomerEstimate from './modules/CustomerEstimate';
+import CustomerKiosk from './modules/CustomerKiosk';
 import IgnitionTools from './modules/IgnitionTools';
 import EnrollmentCatch from './EnrollmentCatch';
 
@@ -35,19 +36,19 @@ const TILE_SIZE = (width / 4) - 15;
  * Extracts the heavy switch statement into a pure component to prevent 
  * MainContent from recalculating inline JSX functions on every render.
  */
-const ModuleRouter = ({ 
-  currentModule, 
-  selectedJob, 
-  setSelectedJob, 
-  setCurrentModule, 
-  jobs, 
-  registry, 
-  activeProfile, 
-  addJob, 
-  updateJob, 
-  toggleModule, 
-  triggerGlobalLockout, 
-  updatePrefs 
+const ModuleRouter = ({
+  currentModule,
+  selectedJob,
+  setSelectedJob,
+  setCurrentModule,
+  jobs,
+  registry,
+  activeProfile,
+  addJob,
+  updateJob,
+  toggleModule,
+  triggerGlobalLockout,
+  updatePrefs,
 }) => {
   switch(currentModule) {
     case 'intake': 
@@ -107,7 +108,27 @@ const ModuleRouter = ({
         />
       );
     case 'estimate_doc':
-      return <CustomerEstimate selectedJob={selectedJob} />;
+      return (
+        <CustomerEstimate
+          selectedJob={selectedJob}
+          onSendToKiosk={() => setCurrentModule('kiosk')}
+        />
+      );
+    case 'kiosk':
+      return (
+        <CustomerKiosk
+          job={selectedJob}
+          onAuthorized={() => {
+            updateJob(selectedJob.jobId, { status: 'AUTHORIZED', authorizedAt: new Date().toISOString() });
+            setCurrentModule(null);
+          }}
+          onPickupSigned={() => {
+            updateJob(selectedJob.jobId, { status: 'PICKED_UP', pickedUpAt: new Date().toISOString() });
+            setCurrentModule(null);
+          }}
+          onExit={() => setCurrentModule('estimate_doc')}
+        />
+      );
     case 'parts': 
       return <PartsList selectedJob={selectedJob} profile={activeProfile} onUpdatePrefs={updatePrefs} />;
     case 'tools':
@@ -225,6 +246,7 @@ function MainContent() {
       case 'estimates': return <FileSignature {...p} />;
       case 'tools': return <Wrench {...p} />;
       case 'admin': return <Settings {...p} />;
+      case 'kiosk': return <Ghost {...p} />;
       case 'fleet': return <Truck {...p} />;
       case 'inv': return <Zap {...p} />;
       default: return <LayoutGrid {...p} />;
