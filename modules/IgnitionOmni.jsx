@@ -202,61 +202,82 @@ const LeakageAudit = ({ auditData }) => {
 
 const IgnitionOmni = ({ activeJob, onEnterKiosk }) => {
   const [trialModules, setTrialModules] = useState([]);
-  const [auditData, setAuditData] = useState([]);
+  const [auditData, setAuditData]       = useState([]);
+  const [stats, setStats]               = useState({ revenue: 0, jobCount: 0, inventoryValue: 0, efficiency: 0 });
 
   useEffect(() => {
-    // Pull the system_subscriptions from DataBridge
+    // ── Real job data ────────────────────────────────────────────────────────
+    const jobs = DataBridge.load('jobs_table') || [];
+    const now  = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    const monthJobs    = jobs.filter(j => new Date(j.createdAt || j.created_at) >= monthStart);
+    const completedJobs = monthJobs.filter(j => j.status === 'COMPLETE' || j.status === 'AUTHORIZED');
+    const monthRevenue  = completedJobs.reduce((sum, j) => {
+      const parts  = (j.suggestedParts || []).reduce((s, p) => s + (p.retailPrice || 0), 0);
+      const labor  = (j.tasks || []).reduce((s, t) => s + ((t.billed_hours || 0) * (t.rate || 0)), 0);
+      return sum + parts + labor;
+    }, 0);
+
+    // ── Real inventory value ─────────────────────────────────────────────────
+    const inventory    = DataBridge.load('inventory_items') || [];
+    const inventoryVal = inventory.reduce((sum, i) => sum + ((i.cost || 0) * (i.qty || 0)), 0);
+
+    // ── Efficiency: % of jobs completed vs started this month ───────────────
+    const efficiency = monthJobs.length > 0
+      ? Math.round((completedJobs.length / monthJobs.length) * 100)
+      : 0;
+
+    setStats({
+      revenue:        monthRevenue,
+      jobCount:       monthJobs.length,
+      inventoryValue: inventoryVal,
+      efficiency,
+    });
+
+    // ── Trial modules ────────────────────────────────────────────────────────
     const subs = DataBridge.load('system_subscriptions') || {};
     const trls = [];
-    
-    // Convert object to array and filter trials dynamically
     Object.keys(subs).forEach(key => {
       const mod = subs[key];
       if (mod.trialActive) {
         const { daysRemaining } = DataBridge.checkTrialStatus(key);
-        // Map onto dynamic array payload
-        trls.push({
-          module: `${key} MODULE`,
-          daysLeft: daysRemaining,
-          blurredAlerts: Math.floor(Math.random() * 20) + 1, // Simulated blurred intercepts
-          value: `$${Math.floor(Math.random() * 5000) + 500}` // Simulated ROI savings
-        });
+        trls.push({ module: `${key} MODULE`, daysLeft: daysRemaining });
       }
     });
-
     setTrialModules(trls);
 
-    // Initialize Leakage Tracker
-    const tx = DataBridge.load('transaction_history');
-    if (tx && tx.length > 0) {
-      setAuditData(tx);
-    } else {
-      // Load fallback simulation data if the DataBridge is fresh
-      const mockData = [
-        { customer: "Texas Star Logistics", tier: "PRO", standardPrice: 1250, actualPrice: 1050 },
-        { customer: "Mike's Welding (Buddy)", tier: "FF", standardPrice: 800, actualPrice: 400 },
-        { customer: "City Metro Waste", tier: "GOV", standardPrice: 3200, actualPrice: 3000 }
-      ];
-      setAuditData(mockData);
-      DataBridge.save('transaction_history', mockData);
-    }
+    // ── Leakage audit from real authorized jobs ───────────────────────────────
+    const auditRows = completedJobs
+      .filter(j => (j.suggestedParts || []).some(p => p.wholesaleCost && p.retailPrice))
+      .map(j => {
+        const standardTotal = (j.suggestedParts || []).reduce((s, p) => s + (p.retailPrice || 0), 0);
+        const actualTotal   = (j.suggestedParts || []).reduce((s, p) => s + ((p.wholesaleCost || 0) * 1.25 * (p.qty || 1)), 0);
+        return { customer: j.name || 'Unknown', tier: j.customerTier || 'STANDARD', standardPrice: standardTotal, actualPrice: actualTotal };
+      })
+      .filter(r => r.standardPrice > 0);
 
+    if (auditRows.length > 0) {
+      setAuditData(auditRows);
+    } else {
+      setAuditData([]);
+    }
   }, []);
 
   return (
     <div className="p-6 bg-slate-950 text-slate-200 min-h-screen">
       <header className="mb-8 border-b border-slate-800 pb-6">
         <h2 className="text-3xl font-black italic text-white uppercase tracking-tighter">OMNI // Command</h2>
-        <p className="text-[10px] font-mono text-blue-500 uppercase tracking-widest">Shop Performance Metrics // Leander Central</p>
+        <p className="text-[10px] font-mono text-blue-500 uppercase tracking-widest">Shop Performance Metrics // {DataBridge.load('shop_info')?.name || 'Your Shop'}</p>
       </header>
 
       {/* TOP LEVEL TOTALS */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
         {[
-          { label: 'Monthly Revenue', val: '$42.5k', change: '+12%', icon: <DollarSign size={16}/> },
-          { label: 'Active Trials', val: trialModules.length.toString(), change: 'Tracking', icon: <Users size={16}/> },
-          { label: 'Inventory Value', val: '$18.2k', change: 'STOK Level', icon: <Package size={16}/> },
-          { label: 'Efficiency', val: '94%', change: '+5%', icon: <TrendingUp size={16}/> },
+          { label: 'Monthly Revenue',   val: `$${(stats.revenue / 1000).toFixed(1)}k`,        change: `${stats.jobCount} jobs`,    icon: <DollarSign size={16}/> },
+          { label: 'Active Trials',     val: trialModules.length.toString(),                   change: 'Tracking',                  icon: <Users size={16}/> },
+          { label: 'Inventory Value',   val: `$${(stats.inventoryValue / 1000).toFixed(1)}k`, change: 'Live',                      icon: <Package size={16}/> },
+          { label: 'Completion Rate',   val: stats.efficiency > 0 ? `${stats.efficiency}%` : '—', change: 'This Month',            icon: <TrendingUp size={16}/> },
         ].map((stat, i) => (
           <div key={i} className="bg-slate-900 border border-slate-800 p-4 rounded-2xl">
             <div className="flex justify-between items-start mb-2">

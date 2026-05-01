@@ -8,9 +8,10 @@
 
 import DataBridge from './DataBridge';
 
-const API_URL = typeof window !== 'undefined'
-  ? `http://${window.location.hostname}:8000`
-  : 'http://localhost:8000';
+const API_URL =
+  (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) ||
+  (typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_API_URL) ||
+  'http://localhost:8000';
 
 // ─── CONNECTION STATUS ────────────────────────────────────────────────────────
 

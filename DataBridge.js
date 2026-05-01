@@ -394,6 +394,38 @@ const DataBridge = {
   },
 
   /**
+   * SHOP_TRIAL: Returns the shop-level 14-day trial status.
+   * day 0–6: active, day 7: nudge, day 12: savings report, day 14: warning, day 15+: blur, day 30+: archive
+   */
+  getShopTrialStatus: () => {
+    const info = DataBridge.load('shop_info') || {};
+    const policy = DataBridge.load('shop_policy') || {};
+
+    // Paid shops skip the trial gate entirely
+    if (policy.tier && policy.tier !== 'TRIAL') {
+      return { day: 0, daysRemaining: 999, isActive: true, isWarning: false, isBlurred: false, isArchived: false, isPaid: true };
+    }
+
+    const start = info.trial_started_at ? new Date(info.trial_started_at) : null;
+    if (!start) {
+      return { day: 0, daysRemaining: 14, isActive: true, isWarning: false, isBlurred: false, isArchived: false, isPaid: false };
+    }
+
+    const day = Math.floor((Date.now() - start.getTime()) / (1000 * 60 * 60 * 24));
+    return {
+      day,
+      daysRemaining: Math.max(0, 14 - day),
+      isActive:   day < 14,
+      isWarning:  day >= 12 && day < 15,
+      isBlurred:  day >= 15 && day < 30,
+      isArchived: day >= 30,
+      isPaid:     false,
+      showNudge:  day >= 7  && day < 12,
+      showReport: day >= 12 && day < 15,
+    };
+  },
+
+  /**
    * CHECK_TRIAL: Logic for the "Blind Spot" / Blur feature.
    * Returns: { isExpired: boolean, daysRemaining: number }
    */
@@ -426,6 +458,29 @@ const DataBridge = {
     } else {
       console.warn("[DataBridge] Factory Reset triggered on Mobile. UI must handle refresh.");
     }
+  },
+
+  // Wipes shop registration + onboarding flag only — job/customer data is preserved.
+  resetOnboarding: () => {
+    if (isWeb) {
+      const raw = localStorage.getItem(DataBridge.storageKey);
+      const data = raw ? JSON.parse(raw) : {};
+      delete data.shop_policy;
+      delete data.shop_info;
+      delete data.current_user;
+      delete data.user_profiles;
+      localStorage.removeItem('IGNITION_SHOP_ID');
+      localStorage.setItem(DataBridge.storageKey, JSON.stringify(data));
+      window.location.reload();
+    }
+  },
+
+  // Shifts trial_started_at so the app behaves as if it's currently day N.
+  simulateTrialDay: (day) => {
+    const info = DataBridge.load('shop_info') || {};
+    const fakeStart = new Date(Date.now() - day * 24 * 60 * 60 * 1000).toISOString();
+    DataBridge.save('shop_info', { ...info, trial_started_at: fakeStart });
+    if (isWeb) window.location.reload();
   },
 
   /**
@@ -591,6 +646,35 @@ const DataBridge = {
     });
   },
 
+  getMarginMatrix: () => {
+    const config = DataBridge.load('system_config') || {};
+    return config.marginMatrix || { defaultMarkup: 1.25, slabs: [] };
+  },
+
+  setMarginMatrix: (matrix, adminId) => {
+    const config = DataBridge.load('system_config') || {};
+    const old = config.marginMatrix || {};
+    config.marginMatrix = matrix;
+    DataBridge.save('system_config', config);
+    const ledger = DataBridge.load('admin_audit_log') || [];
+    ledger.push({ action: 'UPDATE_MARGIN_MATRIX', matrix, adminId: adminId || 'SYSTEM', timestamp: Date.now() });
+    DataBridge.save('admin_audit_log', ledger);
+  },
+
+  getOperationalCosts: () => {
+    const config = DataBridge.load('system_config') || {};
+    return config.operationalCosts || { rent: 0, electric: 0, fuel: 0, maintenance: 0 };
+  },
+
+  setOperationalCosts: (costs, adminId) => {
+    const config = DataBridge.load('system_config') || {};
+    config.operationalCosts = costs;
+    DataBridge.save('system_config', config);
+    const ledger = DataBridge.load('admin_audit_log') || [];
+    ledger.push({ action: 'UPDATE_OPERATIONAL_COSTS', costs, adminId: adminId || 'SYSTEM', timestamp: Date.now() });
+    DataBridge.save('admin_audit_log', ledger);
+  },
+
   /**
    * LOG_MARGIN_CHANGE: Appends a timestamped entry to margin_change_log for analytics.
    */
@@ -703,6 +787,92 @@ const DataBridge = {
       'TURBO_REPLACEMENT': { job: 'Turbocharger R&R', hours: 3.5 },
       'DPF_CLEAN': { job: 'DPF System Clean & Test', hours: 4.0 },
     };
+  },
+
+  getJobs: () => {
+    return DataBridge.load('active_jobs') || [];
+  },
+
+  getAuditHistory: () => {
+    return DataBridge.load('invoice_audits') || [];
+  },
+
+  saveAuditResult: (result) => {
+    const history = DataBridge.load('invoice_audits') || [];
+    history.unshift({ ...result, id: Date.now(), auditedAt: new Date().toISOString() });
+    if (history.length > 100) history.splice(100);
+    DataBridge.save('invoice_audits', history);
+  },
+
+  getFleetUnits: () => {
+    return DataBridge.load('fleet_units') || [];
+  },
+
+  saveFleetUnit: (unit) => {
+    const units = DataBridge.load('fleet_units') || [];
+    const idx = units.findIndex(u => u.id === unit.id);
+    if (idx >= 0) units[idx] = { ...units[idx], ...unit };
+    else units.push(unit);
+    DataBridge.save('fleet_units', units);
+  },
+
+  // ── PMI (Preventive Maintenance) ──────────────────────────────────────────
+
+  getPMIAssets: () => {
+    const stored = DataBridge.load('pmi_assets') || [];
+    const storedIds = new Set(stored.map(a => a.id));
+    // Auto-surface specialized gear from active jobs
+    const jobs = DataBridge.load('active_jobs') || [];
+    const jobAssets = [];
+    jobs.forEach(j => {
+      (j.inventory?.specialized || []).forEach(item => {
+        if (!storedIds.has(item.id)) {
+          jobAssets.push({
+            id: item.id,
+            name: `${item.name}${j.unit ? ` (${j.unit})` : ''}`,
+            type: 'VEHICLE_EQUIPMENT',
+            managedBy: 'SHOP',
+            telematicsRisk: item.health === 'RED' ? 85 : item.health === 'YELLOW' ? 45 : 10,
+            lastPMI: null,
+            pmiDue: null,
+            savingsAvoided: 0,
+            source: 'JOB',
+          });
+        }
+      });
+    });
+    return [...stored, ...jobAssets];
+  },
+
+  savePMIAsset: (asset) => {
+    const assets = DataBridge.load('pmi_assets') || [];
+    const idx = assets.findIndex(a => a.id === asset.id);
+    if (idx >= 0) assets[idx] = { ...assets[idx], ...asset };
+    else assets.push(asset);
+    DataBridge.save('pmi_assets', assets);
+  },
+
+  getPMISchedule: (assetId) => {
+    const all = DataBridge.load('pmi_schedules') || {};
+    return all[assetId] || null;
+  },
+
+  savePMISchedule: (assetId, schedule) => {
+    const all = DataBridge.load('pmi_schedules') || {};
+    all[assetId] = { ...schedule, savedAt: new Date().toISOString() };
+    DataBridge.save('pmi_schedules', all);
+  },
+
+  getPMILogs: (assetId) => {
+    const all = DataBridge.load('pmi_logs') || {};
+    return all[assetId] || [];
+  },
+
+  logPMIInspection: (assetId, entry) => {
+    const all = DataBridge.load('pmi_logs') || {};
+    if (!all[assetId]) all[assetId] = [];
+    all[assetId].unshift({ ...entry, id: Date.now(), loggedAt: new Date().toISOString() });
+    DataBridge.save('pmi_logs', all);
   },
 
   getSystemRoles: () => {

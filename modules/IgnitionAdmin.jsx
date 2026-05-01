@@ -718,9 +718,48 @@ const ShopTab = () => {
       </div>
 
       {/* Danger Zone */}
-      <div className="bg-slate-900 border border-red-500/20 rounded-3xl p-6 shadow-2xl">
-        <h3 className="text-xs font-black text-red-400 uppercase tracking-widest mb-4">Danger Zone</h3>
+      <div className="bg-slate-900 border border-red-500/20 rounded-3xl p-6 shadow-2xl space-y-4">
+        <h3 className="text-xs font-black text-red-400 uppercase tracking-widest">Danger Zone</h3>
+
+        {/* Restart Onboarding */}
         <div className="flex items-center justify-between">
+          <div>
+            <p className="text-[10px] font-black text-white uppercase">Restart Onboarding</p>
+            <p className="text-[9px] text-slate-500">Resets shop setup and PIN. Job data is kept.</p>
+          </div>
+          <button
+            onClick={() => {
+              if (window.confirm('Restart onboarding? Your jobs and settings are preserved — only shop registration and login will reset.')) {
+                DataBridge.resetOnboarding();
+              }
+            }}
+            className="flex items-center gap-2 bg-orange-600/10 border border-orange-500/20 text-orange-400 font-black px-4 py-2 rounded-xl text-[9px] uppercase tracking-widest hover:bg-orange-600/20 transition-colors"
+          >
+            <AlertTriangle size={12} /> Restart
+          </button>
+        </div>
+
+        {/* Simulate Trial Day */}
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-[10px] font-black text-white uppercase">Simulate Trial Day</p>
+            <p className="text-[9px] text-slate-500">Jump to any day to preview trial banners &amp; gates.</p>
+          </div>
+          <div className="flex items-center gap-2">
+            {[0, 7, 12, 15, 30].map(day => (
+              <button
+                key={day}
+                onClick={() => DataBridge.simulateTrialDay(day)}
+                className="bg-slate-800 border border-slate-700 text-slate-300 font-black px-3 py-1.5 rounded-lg text-[9px] uppercase hover:bg-slate-700 transition-colors"
+              >
+                D{day}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Factory Reset */}
+        <div className="flex items-center justify-between border-t border-slate-800 pt-4">
           <div>
             <p className="text-[10px] font-black text-white uppercase">Factory Reset</p>
             <p className="text-[9px] text-slate-600">Wipes all local data. Cannot be undone.</p>

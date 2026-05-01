@@ -37,6 +37,7 @@ export default function IgnitionIntake({ onComplete }) {
     complaint:   '',
     advisories:  '',     // pre-existing conditions / deferred items
   });
+  const [nameError, setNameError] = useState('');
 
   // Service advisor auto-stamped from current logged-in user
   const currentUser     = DataBridge.load('current_user');
@@ -76,10 +77,16 @@ export default function IgnitionIntake({ onComplete }) {
 
   // ── Submit ─────────────────────────────────────────────────────────────────
   const handleSave = () => {
-    if (!formData.name.trim() || !formData.model.trim()) {
+    if (formData.name.trim().length < 2) {
+      setNameError('Full name required (at least 2 characters)');
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
       return;
     }
+    if (!formData.model.trim()) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      return;
+    }
+    setNameError('');
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
     const jobId = `JOB-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -169,15 +176,16 @@ export default function IgnitionIntake({ onComplete }) {
             <SectionHeader label="CUSTOMER" />
 
             <Field label="CUSTOMER NAME (AUTO-SEARCH)">
-              <InputBox icon={<User color="#3b82f6" size={18} />} highlight={nameMatches.length > 0}>
+              <InputBox icon={<User color={nameError ? "#ef4444" : "#3b82f6"} size={18} />} highlight={nameMatches.length > 0}>
                 <TextInput
                   style={styles.input}
                   value={formData.name}
-                  onChangeText={set('name')}
+                  onChangeText={(val) => { set('name')(val); if (nameError) setNameError(''); }}
                   placeholder="Full Name"
                   placeholderTextColor="#475569"
                 />
               </InputBox>
+              {nameError ? <Text style={{ color: '#ef4444', fontSize: 11, fontWeight: '700', marginTop: 4, paddingHorizontal: 4 }}>{nameError}</Text> : null}
               {nameMatches.length > 0 && (
                 <SearchResults matches={nameMatches} onSelect={selectCustomer} />
               )}

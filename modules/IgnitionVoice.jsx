@@ -37,12 +37,7 @@ export default function IgnitionVoice({ selectedJob, onApprove }) {
         const formData = new FormData();
         formData.append('file', { uri, type: 'audio/m4a', name: 'diagnostic.m4a' });
 
-        // Connect to your local Python API! 
-        // Note: Change 'localhost' to your computer's local network IP (e.g., 192.168.1.x) if testing on a physical iPhone/Android.
-        const apiUrl = window?.location?.hostname === 'localhost' 
-          ? 'http://localhost:8000/transcribe' 
-          : 'http://192.168.1.14:8000/transcribe';
-          
+        const apiUrl = (process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000') + '/transcribe';
         const response = await fetch(apiUrl, {
           method: 'POST',
           body: formData,

@@ -9,6 +9,8 @@
  *   const result = await AIEngine.call('dtc_decode', { codes: ['P0171'] });
  */
 
+import DataBridge from './DataBridge';
+
 const API_URL =
   import.meta.env?.VITE_API_URL ??
   process.env?.EXPO_PUBLIC_API_URL ??
@@ -21,6 +23,9 @@ const TASK_ROUTING = {
   invoice_scan:        { provider: 'gemini', model: 'gemini-2.0-flash',      type: 'vision' },
   label_read:          { provider: 'gemini', model: 'gemini-2.0-flash',      type: 'vision' },
   part_photo_id:       { provider: 'gemini', model: 'gemini-2.0-flash',      type: 'vision' },
+
+  // Two-stage: Gemini OCR → Claude audit (handled entirely in backend)
+  invoice_audit:       { provider: 'claude', model: 'claude-haiku-4-5-20251001', type: 'text' },
 
   // Claude Haiku — fast structured reasoning
   dtc_decode:          { provider: 'claude', model: 'claude-haiku-4-5-20251001', type: 'text' },
@@ -44,7 +49,7 @@ const TIER_TASKS = {
   TRIAL:        Object.keys(TASK_ROUTING),
   STARTER:      [],
   PROFESSIONAL: [
-    'vin_decode', 'invoice_scan', 'label_read', 'part_photo_id',
+    'vin_decode', 'invoice_scan', 'invoice_audit', 'label_read', 'part_photo_id',
     'dtc_decode', 'estimate_draft', 'customer_summary', 'pmi_suggest',
     'voice_transcribe', 'parts_nlp', 'intent_classify',
   ],
@@ -137,6 +142,15 @@ const AIEngine = {
   async suggestPMI(toolData, shopId, tier) {
     return AIEngine.call('pmi_suggest',
       { tool: toolData, shop_id: shopId },
+      { tier });
+  },
+
+  async auditInvoice(imageBase64, shopId, tier) {
+    const inventory = (
+      (typeof DataBridge !== 'undefined' ? DataBridge.load('inventory_items') : null) || []
+    ).slice(0, 60);
+    return AIEngine.call('invoice_audit',
+      { image_base64: imageBase64, shop_id: shopId, inventory },
       { tier });
   },
 

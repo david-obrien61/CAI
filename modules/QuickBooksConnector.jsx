@@ -10,6 +10,11 @@ import React, { useState, useEffect } from 'react';
 import { Database, CheckCircle, AlertCircle, RefreshCw, Link2, Link2Off, DollarSign, Users, ChevronRight } from 'lucide-react';
 import ExternalBridge from '../ExternalBridge';
 
+const QBO_CALLBACK_URL = (
+  (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) ||
+  'http://localhost:8000'
+) + '/api/qbo/callback';
+
 const StatusBadge = ({ connected }) => (
   <span className={`text-[8px] font-black px-2 py-1 rounded-full uppercase ${connected ? 'bg-emerald-600/20 text-emerald-400' : 'bg-slate-800 text-slate-500'}`}>
     {connected ? 'Connected' : 'Not Connected'}
@@ -210,7 +215,7 @@ const QuickBooksConnector = ({ onConnected }) => {
           <div className="space-y-3">
             {[
               'Create a free app at developer.intuit.com',
-              'Set Redirect URI to: http://localhost:8000/api/qbo/callback',
+              `Set Redirect URI to: ${QBO_CALLBACK_URL}`,
               'Copy your Client ID and Client Secret into the .env file',
               'Restart the Python backend (shop_estimate.py)',
             ].map((step, i) => (

@@ -13,6 +13,7 @@ import {
   Phone, Mail, MapPin, FileText, Upload, User, Car, Lock
 } from 'lucide-react';
 import DataBridge from './DataBridge';
+import { supabase } from './supabase';
 import { MarginEngine } from './MarginEngine';
 import ExternalBridge from './ExternalBridge';
 
@@ -76,20 +77,41 @@ const OnboardingWizard = ({ onComplete }) => {
   const next = () => setStepIndex(i => Math.min(i + 1, STEPS.length - 1));
   const back = () => setStepIndex(i => Math.max(i - 1, 0));
 
-  const finalize = (extraPolicy = {}) => {
-    // 1. Save shop info
+  const finalize = async (extraPolicy = {}) => {
+    // 1. Generate a unique shop ID for this trial — ties all data together in Supabase
+    const shopId = crypto.randomUUID();
+    DataBridge.setShopId(shopId);
+
+    const trialStartedAt = new Date().toISOString();
+    const trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+
+    // 2. Register shop in Supabase — one row per shop, forever
+    await supabase.from('shops').upsert({
+      id: shopId,
+      name: shopInfo.name,
+      phone: shopInfo.phone || null,
+      address: shopInfo.address || null,
+      usdot: shopInfo.usdot || null,
+      tier: 'TRIAL',
+      trial_started_at: trialStartedAt,
+    }, { onConflict: 'id' });
+
+    // 3. Save shop info to localStorage
     const existingPolicy = DataBridge.load('shop_policy') || {};
     DataBridge.save('shop_info', {
+      id: shopId,
       name: shopInfo.name,
       is_multi_location: false,
       global_contact: { phone: shopInfo.phone, email: '', address: shopInfo.address, usdot: shopInfo.usdot },
       locations: [],
+      trial_started_at: trialStartedAt,
+      trial_ends_at: trialEndsAt,
     });
 
-    // 2. Replace "Leander Shop" placeholder with real shop name everywhere
     DataBridge.save('shop_policy', {
       ...existingPolicy,
-      tier: 'LITE',
+      tier: 'TRIAL',
+      shop_id: shopId,
       autoLockEnabled: true,
       enable_price_audit: true,
       enable_bay_custody: false,
@@ -97,11 +119,11 @@ const OnboardingWizard = ({ onComplete }) => {
       active_modules: ['CORE', 'KOSK', 'PORT'],
       onboarding_complete: true,
       onboarding_path: path,
-      onboarding_completed_at: new Date().toISOString(),
+      onboarding_completed_at: trialStartedAt,
       ...extraPolicy,
     });
 
-    // 3. Create owner profile with chosen PIN
+    // 4. Create owner profile with chosen PIN
     const pin = ownerPin || '0000';
     const profiles = DataBridge.getProfiles();
     const updatedProfiles = {

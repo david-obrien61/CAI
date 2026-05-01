@@ -7,12 +7,13 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Calculator, AlertTriangle, ArrowRight, Lock } from 'lucide-react';
 import DataBridge from '../DataBridge';
+import AIEngine from '../AIEngine';
 
 const IgnitionCipher = ({ activeJob, onUpdateJob, onNavigateToStok }) => {
   const [faultCode, setFaultCode] = useState('');
   const [result, setResult] = useState(null);
-  
-  // Check trial status specifically for this module
+  const [isLoading, setIsLoading] = useState(false);
+
   const { isExpired, daysRemaining } = DataBridge.checkTrialStatus('CODE');
 
   // Logic to simulate a "Live Scan" from Telematics
@@ -26,39 +27,49 @@ const IgnitionCipher = ({ activeJob, onUpdateJob, onNavigateToStok }) => {
     "157": { name: "Fuel Rail Pressure Low", parts: ["Relief Valve"], labor: 2.5, partsCost: 215.5 }
   };
 
-  const handleTranslate = () => {
-    const base = faultLibrary[faultCode];
+  const handleTranslate = async () => {
+    const code = faultCode.trim().toUpperCase();
+    if (!code) return;
+
+    const activeRate   = activeJob?.lockedLaborRate || DataBridge.getSystemRates().BASE;
+    const activeMargin = activeJob?.lockedMargin || DataBridge.getActiveMargin('STANDARD');
+
+    const base = faultLibrary[code];
     if (base) {
-      // 1. Point-in-time Snapshot Enforcement
-      // If the job already has a locked rate from earlier, USE IT. Otherwise, pull Live Market Rate.
-      const activeRate = activeJob?.lockedLaborRate || DataBridge.getSystemRates().BASE;
-      const activeMargin = activeJob?.lockedMargin || DataBridge.getActiveMargin('STANDARD');
+      const retail = DataBridge.calculateRetail(base.partsCost + base.labor * activeRate, activeMargin);
+      setResult({ ...base, total: retail, rateApplied: activeRate, marginApplied: activeMargin, source: 'LOCAL' });
+      if (!activeJob?.lockedLaborRate && onUpdateJob)
+        onUpdateJob({ ...activeJob, lockedLaborRate: activeRate, lockedMargin: activeMargin });
+      return;
+    }
 
-      // 2. Perform Costing Math
-      const totalLaborCost = base.labor * activeRate;
-      const totalRawCost = totalLaborCost + base.partsCost;
-      const retail = DataBridge.calculateRetail(totalRawCost, activeMargin);
-      
-      const hydratedBase = {
-        ...base,
-        total: retail,
-        rateApplied: activeRate,
-        marginApplied: activeMargin
-      };
-
-      setResult(hydratedBase);
-
-      // 3. SECURE WORKFLOW OVERRIDE
-      // Instantly push the new Snapshot parameter back to DataBridge to freeze the Estimate permanently
-      if (!activeJob?.lockedLaborRate && onUpdateJob) {
-        onUpdateJob({
-           ...activeJob, 
-           lockedLaborRate: activeRate, 
-           lockedMargin: activeMargin
+    // Unknown code — ask Claude
+    setIsLoading(true);
+    setResult(null);
+    try {
+      const vehicle = activeJob ? `${activeJob.year || ''} ${activeJob.make || ''} ${activeJob.model || ''}`.trim() : '';
+      const aiRes = await AIEngine.decodeDTC([code], vehicle || undefined);
+      if (aiRes?.codes?.[0]) {
+        const c = aiRes.codes[0];
+        setResult({
+          name:          c.description || c.likely_cause || code,
+          parts:         c.parts_likely_needed || [],
+          labor:         c.labor_hours_estimate || 1.5,
+          partsCost:     0,
+          total:         (c.labor_hours_estimate || 1.5) * activeRate,
+          rateApplied:   activeRate,
+          marginApplied: activeMargin,
+          severity:      c.severity,
+          source:        'AI',
+          raw:           c,
         });
+      } else {
+        setResult({ name: `Code ${code} — No data found`, parts: [], labor: 0, partsCost: 0, total: 0, source: 'AI' });
       }
-    } else {
-      setResult(null);
+    } catch (err) {
+      setResult({ name: `Code ${code} — AI unavailable`, parts: [], labor: 0, partsCost: 0, total: 0, source: 'ERROR' });
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -86,7 +97,9 @@ const IgnitionCipher = ({ activeJob, onUpdateJob, onNavigateToStok }) => {
             value={faultCode}
             onChange={(e) => setFaultCode(e.target.value)}
           />
-          <button onClick={handleTranslate} className="bg-blue-600 px-8 rounded-xl font-black text-white">DECODE</button>
+          <button onClick={handleTranslate} disabled={isLoading} className={`px-8 rounded-xl font-black text-white transition-colors ${isLoading ? 'bg-slate-600 cursor-wait' : 'bg-blue-600 hover:bg-blue-500'}`}>
+            {isLoading ? '...' : 'DECODE'}
+          </button>
         </div>
         <button onClick={simulateLiveSync} className="mt-4 w-full text-[9px] text-slate-500 uppercase font-black hover:text-blue-500 transition-colors">
           • Auto-Sync from Telematics •
@@ -100,6 +113,14 @@ const IgnitionCipher = ({ activeJob, onUpdateJob, onNavigateToStok }) => {
             <div>
               <p className="text-[10px] font-black text-slate-500 uppercase mb-1">Diagnosis</p>
               <h3 className="text-xl font-black italic text-white">{result.name}</h3>
+              {result.source === 'AI' && (
+                <span className="text-[9px] font-black text-purple-400 uppercase tracking-widest">⚡ AI-decoded by Claude</span>
+              )}
+              {result.severity && (
+                <span className={`ml-3 text-[9px] font-black uppercase tracking-widest ${result.severity === 'HIGH' ? 'text-red-400' : result.severity === 'MEDIUM' ? 'text-orange-400' : 'text-yellow-400'}`}>
+                  {result.severity} severity
+                </span>
+              )}
             </div>
             <AlertTriangle className="text-orange-500" />
           </div>

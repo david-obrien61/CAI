@@ -79,6 +79,7 @@ class AIRequest(BaseModel):
     transcript:    Optional[str] = None
     tool:          Optional[dict] = None
     job:           Optional[dict] = None
+    inventory:     Optional[list] = None
     _route:        Optional[dict] = None
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -242,6 +243,74 @@ async def pmi_suggest(req: AIRequest):
         return json.loads(text)
     except Exception:
         return {"raw": text}
+
+@ai_router.post("/invoice_audit")
+async def invoice_audit(req: AIRequest):
+    """
+    Two-stage invoice audit:
+      1. Gemini extracts all text/line items from the invoice photo.
+      2. Claude cross-references against the shop's inventory and flags missing
+         charges, uncaptured inventory consumption, and leakage patterns.
+    """
+    if not req.image_base64:
+        raise HTTPException(400, "image_base64 required")
+
+    # Stage 1 — Gemini OCR
+    ocr_prompt = (
+        "Extract every detail from this repair / service invoice. Return ONLY valid JSON: "
+        '{"customer": "", "date": "", "vehicle": "", "technician": "", '
+        '"services_performed": [], '
+        '"line_items": [{"description": "", "part_number": "", "qty": 0, "price": 0, "no_charge": false}], '
+        '"subtotal": 0, "total": 0, "notes": ""}'
+    )
+    ocr_result = _gemini_vision(req.image_base64, ocr_prompt, req.shop_id or "", "invoice_ocr")
+    try:
+        invoice_data = json.loads(ocr_result.get("text", "{}"))
+    except Exception:
+        invoice_data = {"raw": ocr_result.get("text", ""), "line_items": []}
+
+    # Stage 2 — Claude audit
+    inventory_snapshot = json.dumps((req.inventory or [])[:60])
+    system = (
+        "You are a shop profitability auditor for a diesel / auto repair shop. "
+        "Analyze service invoices to find missing billable charges, uncaptured inventory, "
+        "and recurring leakage patterns. Be specific, practical, and dollar-focused. "
+        "Return valid JSON only."
+    )
+    user = (
+        f"Invoice extracted data:\n{json.dumps(invoice_data)}\n\n"
+        f"Shop inventory (current stock):\n{inventory_snapshot}\n\n"
+        "Tasks:\n"
+        "1. List services performed and identify standard parts/consumables that SHOULD appear "
+        "on every such service (e.g. crush washer with oil change, shop rags, gloves).\n"
+        "2. Find line items marked 'no charge', 'NC', 'complimentary', or $0 that consumed "
+        "real inventory.\n"
+        "3. Cross-reference inventory items with services to flag anything consumed but not billed.\n"
+        "4. Identify patterns that could explain recurring inventory drain.\n\n"
+        "Return JSON:\n"
+        '{"invoice_summary": {"customer": "", "vehicle": "", "services": [], "total_billed": 0}, '
+        '"missing_charges": [{"item": "", "reason": "", "estimated_value": 0, '
+        '"severity": "HIGH|MEDIUM|LOW", "category": "PART|FLUID|CONSUMABLE|LABOR"}], '
+        '"inventory_consumed_uncharged": [{"item": "", "qty_estimate": 1, "unit_cost": 0, '
+        '"inventory_match": ""}], '
+        '"leakage_patterns": [{"pattern": "", "example": "", "monthly_loss_est": 0}], '
+        '"recovery_potential": 0, '
+        '"flags": [{"type": "MISSING_PART|NO_CHARGE_INVENTORY|SHOP_SUPPLIES|PATTERN", '
+        '"message": "", "action": ""}]}'
+    )
+    audit_text = _claude_text(system, user, req.shop_id or "", "invoice_audit",
+                              model="claude-haiku-4-5-20251001")
+    try:
+        # Strip markdown fences if Claude wrapped the JSON
+        clean = audit_text.strip()
+        if clean.startswith("```"):
+            clean = "\n".join(clean.split("\n")[1:])
+        if clean.endswith("```"):
+            clean = clean.rsplit("```", 1)[0]
+        audit = json.loads(clean.strip())
+        return {**audit, "invoice": invoice_data}
+    except Exception:
+        return {"raw": audit_text, "invoice": invoice_data}
 
 @ai_router.post("/savings_report")
 async def savings_report(req: AIRequest):

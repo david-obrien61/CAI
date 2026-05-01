@@ -22,7 +22,8 @@ import IgnitionProc from './modules/IgnitionProc';
 import IgnitionCRM from './modules/IgnitionCRM';
 import IgnitionCompliance from './modules/IgnitionCompliance';
 import IgnitionAdmin from './modules/IgnitionAdmin';
-import { Lock, LayoutDashboard, Truck, Activity, ShoppingCart, Search, Package, BarChart3, ShieldCheck, Users, Map, Store, ScanLine, QrCode, DollarSign, RefreshCw, UserPlus, ClipboardCheck, Cog } from 'lucide-react';
+import IgnitionAudit from './modules/IgnitionAudit';
+import { Lock, LayoutDashboard, Truck, Activity, ShoppingCart, Search, Package, BarChart3, ShieldCheck, Users, Map, Store, ScanLine, QrCode, DollarSign, RefreshCw, UserPlus, ClipboardCheck, Cog, FileSearch } from 'lucide-react';
 
 /**
  * UI: The Enrollment Generator & Gate
@@ -227,8 +228,10 @@ const CoreApp = () => {
   const [stokSearchQuery, setStokSearchQuery] = useState('');
   const [currentUser, setCurrentUser] = useState(DataBridge.load('current_user') || null);
   const [allJobs, setAllJobs] = useState([]);
-  const [userRole, setUserRole] = useState('ADMIN'); 
+  const [userRole, setUserRole] = useState('ADMIN');
   const [isKioskMode, setIsKioskMode] = useState(false);
+  const [trialStatus, setTrialStatus] = useState(() => DataBridge.getShopTrialStatus());
+  const [nudgeDismissed, setNudgeDismissed] = useState(false);
 
   // 2. REFRESH SUBSCRIPTIONS: Pull latest from DataBridge on module switch
   useEffect(() => {
@@ -380,6 +383,84 @@ const CoreApp = () => {
         </div>
       </header>
 
+      {/* ── TRIAL BANNER ─────────────────────────────────────────────────────── */}
+      {!trialStatus.isPaid && !isKioskMode && (() => {
+        const { day, daysRemaining, isWarning, isBlurred, isArchived, showNudge, showReport } = trialStatus;
+
+        if (isArchived) return (
+          <div className="bg-slate-900 border-b border-red-500/30 px-4 py-3 flex items-center justify-between gap-4">
+            <p className="text-xs text-red-400 font-black uppercase tracking-widest">Trial ended {day - 14} days ago — your data is archived</p>
+            <button onClick={() => setActiveModule('MARKETPLACE')} className="bg-red-600 hover:bg-red-500 text-white text-[10px] font-black uppercase tracking-widest px-4 py-2 rounded-xl flex-shrink-0 transition-colors">Restore Access</button>
+          </div>
+        );
+
+        if (isBlurred) return (
+          <div className="bg-slate-900 border-b border-orange-500/40 px-4 py-3 flex items-center justify-between gap-4">
+            <div>
+              <p className="text-xs text-orange-400 font-black uppercase tracking-widest">Trial expired — your data is safe but locked</p>
+              <p className="text-[10px] text-slate-500">Subscribe to unlock everything. Data archived in {30 - day} days.</p>
+            </div>
+            <button onClick={() => setActiveModule('MARKETPLACE')} className="bg-orange-500 hover:bg-orange-400 text-white text-[10px] font-black uppercase tracking-widest px-4 py-2 rounded-xl flex-shrink-0 transition-colors">Subscribe Now</button>
+          </div>
+        );
+
+        if (showReport && !nudgeDismissed) return (
+          <div className="bg-blue-950 border-b border-blue-500/40 px-4 py-3 flex items-center justify-between gap-4">
+            <div>
+              <p className="text-xs text-blue-300 font-black uppercase tracking-widest">⚡ {daysRemaining} days left — your savings report is ready</p>
+              <p className="text-[10px] text-slate-400">Review what Ignition flagged this trial before access ends.</p>
+            </div>
+            <div className="flex gap-2 flex-shrink-0">
+              <button onClick={() => { setActiveModule('OMNI'); setNudgeDismissed(true); }} className="bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-black uppercase tracking-widest px-4 py-2 rounded-xl transition-colors">View Report</button>
+              <button onClick={() => setNudgeDismissed(true)} className="text-slate-600 hover:text-slate-400 text-[10px] font-black uppercase px-3 py-2 transition-colors">✕</button>
+            </div>
+          </div>
+        );
+
+        if (showNudge && !nudgeDismissed) return (
+          <div className="bg-emerald-950 border-b border-emerald-500/30 px-4 py-3 flex items-center justify-between gap-4">
+            <p className="text-xs text-emerald-400 font-black uppercase tracking-widest">Trial active — {daysRemaining} days remaining · Full PREMIER access</p>
+            <button onClick={() => setNudgeDismissed(true)} className="text-slate-600 hover:text-slate-400 text-[10px] font-black uppercase px-3 py-2 transition-colors">✕</button>
+          </div>
+        );
+
+        if (isWarning) return (
+          <div className="bg-red-950 border-b border-red-500/40 px-4 py-3 flex items-center justify-between gap-4">
+            <div>
+              <p className="text-xs text-red-400 font-black uppercase tracking-widest">⚠ {daysRemaining} day{daysRemaining !== 1 ? 's' : ''} left — trial ending soon</p>
+              <p className="text-[10px] text-slate-400">Subscribe now to keep your jobs, customers, and AI features.</p>
+            </div>
+            <button onClick={() => setActiveModule('MARKETPLACE')} className="bg-red-600 hover:bg-red-500 text-white text-[10px] font-black uppercase tracking-widest px-4 py-2 rounded-xl flex-shrink-0 transition-colors">Subscribe</button>
+          </div>
+        );
+
+        return null;
+      })()}
+
+      {/* ── DAY 15 BLUR GATE ─────────────────────────────────────────────────── */}
+      {trialStatus.isBlurred && !trialStatus.isPaid && (
+        <div className="absolute inset-0 z-[100] flex flex-col items-center justify-center bg-slate-950/95 backdrop-blur-sm p-6 text-center">
+          <div className="max-w-md bg-slate-900 border border-blue-500/20 p-10 rounded-3xl shadow-2xl">
+            <div className="w-16 h-16 bg-blue-600/10 border border-blue-500/20 rounded-2xl flex items-center justify-center mx-auto mb-6">
+              <Lock size={32} className="text-blue-400" />
+            </div>
+            <h2 className="text-3xl font-black italic text-white uppercase tracking-tighter mb-2">Trial Complete</h2>
+            <p className="text-slate-400 text-sm mb-2 leading-relaxed">
+              Your 14-day PREMIER trial has ended.
+            </p>
+            <p className="text-slate-500 text-xs mb-8">
+              Your data is safe. Subscribe to unlock full access. Data archived in {Math.max(0, 30 - trialStatus.day)} days.
+            </p>
+            <div className="space-y-3">
+              <button onClick={() => setActiveModule('MARKETPLACE')} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-4 rounded-2xl uppercase tracking-widest text-sm shadow-lg shadow-blue-900/40 transition-colors active:scale-95">
+                Subscribe — From $149/mo
+              </button>
+              <p className="text-[10px] text-slate-600 uppercase tracking-widest">Cancel any time · Data restored instantly</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* MAIN VIEWPORT */}
       <main className="flex-1 overflow-y-auto">
         {activeModule === 'OMNI' && (
@@ -444,6 +525,7 @@ const CoreApp = () => {
                 { id: 'PORT', label: 'Estimates', icon: DollarSign, color: 'text-emerald-400', bg: 'bg-slate-800' },
                 { id: 'COMPLIANCE', label: 'Compliance', icon: ClipboardCheck, color: 'text-red-500', bg: 'bg-slate-800' },
                 { id: 'MARKETPLACE', label: 'Market', icon: ShoppingCart, color: 'text-pink-500', bg: 'bg-slate-800' },
+                { id: 'AUDIT', label: 'Audit', icon: FileSearch, color: 'text-rose-400', bg: 'bg-slate-800' },
                 { id: 'ADMIN', label: 'Admin', icon: Cog, color: 'text-slate-400', bg: 'bg-slate-800' },
               ].map(app => {
                  const { isExpired } = DataBridge.checkTrialStatus(app.id);
@@ -534,6 +616,12 @@ const CoreApp = () => {
         {activeModule === 'MARKETPLACE' && (
           <AccessGatekeeper requiredPermissions={['view_marketplace']}>
             <AdminSubscription />
+          </AccessGatekeeper>
+        )}
+
+        {activeModule === 'AUDIT' && (
+          <AccessGatekeeper requiredPermissions={['view_omni']}>
+            <IgnitionAudit />
           </AccessGatekeeper>
         )}
 
