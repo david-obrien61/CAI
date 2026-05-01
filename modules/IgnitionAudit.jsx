@@ -1,10 +1,9 @@
 /**
  * MODULE: AUDIT (Invoice Intelligence)
- * VERSION: v1.0.0
- * DESC: Upload a shop invoice image. AI (Gemini OCR → Claude reasoning) extracts
- *       every line item, cross-references your live inventory, and flags missing
- *       charges, fluids marked "no charge" that came from stock, and recurring
- *       leakage patterns. Shows dollar recovery potential per invoice.
+ * VERSION: v1.1.0
+ * DESC: Upload a shop invoice image. Claude vision reads and audits in one pass —
+ *       flags missing charges, fluids topped off from inventory at no charge,
+ *       uncaptured consumables, and leakage patterns.
  */
 
 import React, { useState, useRef } from 'react';
@@ -31,14 +30,27 @@ const categoryIcon = (cat) => ({
   LABOR:       <DollarSign size={14} className="text-emerald-400" />,
 }[cat] || <Package size={14} className="text-slate-400" />);
 
-const fileToBase64 = (file) =>
+// Resize + compress image before sending — phone cameras produce 4032x3024 (~4MB).
+// Claude only needs ~1200px to read invoice text clearly; this cuts payload 10x.
+const compressImage = (file, maxPx = 1600, quality = 0.82) =>
   new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = (e) => {
-      const b64 = e.target.result.split(',')[1];
-      resolve(b64);
-    };
     reader.onerror = reject;
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onerror = reject;
+      img.onload = () => {
+        const scale = Math.min(1, maxPx / Math.max(img.width, img.height));
+        const canvas = document.createElement('canvas');
+        canvas.width  = Math.round(img.width  * scale);
+        canvas.height = Math.round(img.height * scale);
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+        const mimeType = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
+        const b64 = canvas.toDataURL(mimeType, quality).split(',')[1];
+        resolve({ b64, mimeType });
+      };
+      img.src = e.target.result;
+    };
     reader.readAsDataURL(file);
   });
 
@@ -241,28 +253,37 @@ const IgnitionAudit = () => {
   const tier    = shopInfo.tier || 'TRIAL';
 
   const fileRef = useRef(null);
-  const [preview,  setPreview]  = useState(null);   // data-url for <img>
-  const [b64,      setB64]      = useState(null);   // raw base64 for API
-  const [stage,    setStage]    = useState('IDLE'); // IDLE | SCANNING | RESULT | HISTORY
-  const [progress, setProgress] = useState(0);      // 0-3 steps
-  const [result,   setResult]   = useState(null);
-  const [history,  setHistory]  = useState(() => DataBridge.getAuditHistory());
-  const [error,    setError]    = useState(null);
+  const [preview,   setPreview]   = useState(null);
+  const [b64,       setB64]       = useState(null);
+  const [mimeType,  setMimeType]  = useState('image/jpeg');
+  const [stage,     setStage]     = useState('IDLE');
+  const [progress,  setProgress]  = useState(0);
+  const [result,    setResult]    = useState(null);
+  const [history,   setHistory]   = useState(() => DataBridge.getAuditHistory());
+  const [error,     setError]     = useState(null);
 
   const STEPS = [
+    'Compressing image…',
     'Reading invoice…',
-    'Extracting line items…',
-    'Cross-referencing inventory…',
     'Auditing for gaps…',
+    'Calculating recovery…',
   ];
 
   const handleFile = async (file) => {
     if (!file || !file.type.startsWith('image/')) return;
-    const url = URL.createObjectURL(file);
-    setPreview(url);
-    const encoded = await fileToBase64(file);
-    setB64(encoded);
+    setPreview(URL.createObjectURL(file));
     setError(null);
+    try {
+      const { b64: compressed, mimeType: mime } = await compressImage(file);
+      setB64(compressed);
+      setMimeType(mime);
+    } catch {
+      // fallback: read as-is without compression
+      const reader = new FileReader();
+      reader.onload = (e) => setB64(e.target.result.split(',')[1]);
+      reader.readAsDataURL(file);
+      setMimeType(file.type || 'image/jpeg');
+    }
   };
 
   const handleDrop = (e) => {
@@ -276,23 +297,23 @@ const IgnitionAudit = () => {
     setStage('SCANNING');
     setError(null);
 
-    // Animate progress steps
     let step = 0;
     const tick = setInterval(() => {
       step++;
       setProgress(step);
       if (step >= STEPS.length - 1) clearInterval(tick);
-    }, 1200);
+    }, 1800);
 
     try {
-      const res = await AIEngine.auditInvoice(b64, shopId, tier);
+      const res = await AIEngine.auditInvoice(b64, shopId, tier, mimeType);
       clearInterval(tick);
       setProgress(STEPS.length);
+      if (!res.ok) throw new Error(res.error || 'Audit returned no result');
       setResult(res);
       setStage('RESULT');
     } catch (err) {
       clearInterval(tick);
-      setError('Audit failed — check that the backend is running and try again.');
+      setError(`Audit failed: ${err.message}`);
       setStage('IDLE');
     }
   };

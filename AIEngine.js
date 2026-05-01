@@ -145,12 +145,12 @@ const AIEngine = {
       { tier });
   },
 
-  async auditInvoice(imageBase64, shopId, tier) {
+  async auditInvoice(imageBase64, shopId, tier, mediaType = 'image/jpeg') {
     const inventory = (
       (typeof DataBridge !== 'undefined' ? DataBridge.load('inventory_items') : null) || []
     ).slice(0, 60);
     return AIEngine.call('invoice_audit',
-      { image_base64: imageBase64, shop_id: shopId, inventory },
+      { image_base64: imageBase64, shop_id: shopId, inventory, media_type: mediaType },
       { tier });
   },
 

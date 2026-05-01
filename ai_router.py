@@ -80,6 +80,7 @@ class AIRequest(BaseModel):
     tool:          Optional[dict] = None
     job:           Optional[dict] = None
     inventory:     Optional[list] = None
+    media_type:    Optional[str]  = None
     _route:        Optional[dict] = None
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -248,82 +249,85 @@ async def pmi_suggest(req: AIRequest):
 @ai_router.post("/invoice_audit")
 async def invoice_audit(req: AIRequest):
     """
-    Two-stage invoice audit:
-      1. Gemini extracts all text/line items from the invoice photo.
-      2. Claude cross-references against the shop's inventory and flags missing
-         charges, uncaptured inventory consumption, and leakage patterns.
+    Single-stage audit using Claude vision — reads invoice image AND audits in one call.
+    No Gemini dependency. Claude sees the raw image directly for maximum accuracy.
     """
     if not req.image_base64:
         raise HTTPException(400, "image_base64 required")
 
-    # Stage 1 — Gemini OCR (capture everything including advisory and tech notes)
-    ocr_prompt = (
-        "Extract every single piece of text from this automotive repair / service invoice. "
-        "Capture ALL sections including advisory notes, tech notes, work performed descriptions, "
-        "and any handwritten or italic text. Return ONLY valid JSON: "
-        '{"customer": "", "date": "", "vehicle": "", "technician": "", '
-        '"advisory_notes": "", '
-        '"work_performed_notes": "", '
-        '"services_performed": [], '
-        '"line_items": [{"description": "", "part_number": "", "qty": 0, "price": 0, "no_charge": false}], '
-        '"subtotal": 0, "total": 0, "raw_notes": ""}'
-    )
-    ocr_result = _gemini_vision(req.image_base64, ocr_prompt, req.shop_id or "", "invoice_ocr")
-    try:
-        invoice_data = json.loads(ocr_result.get("text", "{}"))
-    except Exception:
-        invoice_data = {"raw": ocr_result.get("text", ""), "line_items": []}
-
-    # Stage 2 — Claude audit with explicit automotive rules
     inventory_snapshot = json.dumps((req.inventory or [])[:60]) if req.inventory else "[]"
+    media_type = req.media_type or "image/jpeg"
+
+    client = _anthropic_client()
     system = (
         "You are an aggressive automotive shop profitability auditor. "
-        "Your job is to find EVERY unbilled item and revenue leak on the invoice. "
-        "Apply these MANDATORY rules — flag violations even if inventory is empty:\n\n"
+        "You will be shown a repair invoice image. Read every word on it — "
+        "including advisory notes, tech notes, italic text, and footer text. "
+        "Then audit it for missing charges using these MANDATORY rules:\n\n"
         "OIL CHANGE (any lube/oil/filter service): ALWAYS flag if missing:\n"
         "  - Drain plug crush washer or drain plug gasket (~$3-5) — HIGH severity\n"
         "  - Shop supplies / shop fee ($3-8) — MEDIUM severity\n"
         "  - Hazmat / oil disposal fee ($3-5) — MEDIUM severity\n\n"
-        "FLUID TOP-OFFS: Any fluid mentioned as 'low', 'topped off', 'added', 'filled', "
-        "'a little low' in the work notes, advisory notes, or tech notes — "
-        "if there is NO corresponding charge line, flag as HIGH severity FLUID. "
-        "Fluids include: power steering fluid, coolant, washer fluid, ATF, brake fluid, "
-        "differential fluid. Each costs $8-20/qt from inventory.\n\n"
-        "TIRE ROTATION: If 'rotated tires' or tire measurements appear in work notes "
-        "but no rotation labor line item exists on the invoice, flag as MEDIUM.\n\n"
-        "SHOP SUPPLIES: If the shop supplies line is $0.00 or missing entirely on any "
-        "service invoice, flag as MEDIUM. Gloves, rags, penetrating oil, brake cleaner "
-        "were consumed.\n\n"
-        "UPSELL ADVISORIES: Any advisory notes documenting leaks, worn components, "
-        "or upcoming service needs — flag as opportunities with LOW severity.\n\n"
-        "Return valid JSON only. Always populate missing_charges — never return empty arrays "
-        "if any of the above rules are violated."
+        "FLUID TOP-OFFS: Any fluid mentioned anywhere on the invoice as 'low', "
+        "'topped off', 'added', 'filled', 'a little low', 'checked' — "
+        "if NO charge line exists for that fluid, flag HIGH severity FLUID. "
+        "This includes: power steering fluid, coolant, washer fluid, ATF, "
+        "brake fluid, differential fluid. Each costs $8-20/qt from shop inventory.\n\n"
+        "TIRE ROTATION: If rotation is documented anywhere in notes or work description "
+        "but no rotation labor line item appears on the invoice, flag MEDIUM.\n\n"
+        "SHOP SUPPLIES / HAZMAT: If these line items show $0.00 on a service invoice, "
+        "flag MEDIUM. Real consumables were used.\n\n"
+        "ADVISORY UPSELLS: Any advisory notes (leaks, worn parts, upcoming services) "
+        "with no corresponding estimate created = flag LOW as lost opportunity.\n\n"
+        "Never return empty missing_charges if any rule above is violated. "
+        "Return valid JSON only — no markdown, no explanation text."
     )
-    user = (
-        f"Invoice data extracted by OCR:\n{json.dumps(invoice_data)}\n\n"
-        f"Shop inventory on hand (may be empty):\n{inventory_snapshot}\n\n"
-        "Audit the invoice using the mandatory rules. Return JSON:\n"
-        '{"invoice_summary": {"customer": "", "vehicle": "", "services": [], "total_billed": 0}, '
+    user_text = (
+        "Read this repair invoice image carefully, then audit it.\n\n"
+        f"Shop inventory on hand:\n{inventory_snapshot}\n\n"
+        "Return this exact JSON structure:\n"
+        '{"invoice_summary": {"customer": "", "vehicle": "", "date": "", '
+        '"services": [], "total_billed": 0}, '
         '"missing_charges": [{"item": "", "reason": "", "estimated_value": 0, '
-        '"severity": "HIGH|MEDIUM|LOW", "category": "PART|FLUID|CONSUMABLE|LABOR"}], '
-        '"inventory_consumed_uncharged": [{"item": "", "qty_estimate": 1, "unit_cost": 0, '
-        '"inventory_match": ""}], '
+        '"severity": "HIGH", "category": "PART"}], '
+        '"inventory_consumed_uncharged": [{"item": "", "qty_estimate": 1, '
+        '"unit_cost": 0, "inventory_match": ""}], '
         '"leakage_patterns": [{"pattern": "", "example": "", "monthly_loss_est": 0}], '
         '"recovery_potential": 0, '
-        '"flags": [{"type": "MISSING_PART|NO_CHARGE_INVENTORY|SHOP_SUPPLIES|PATTERN", '
-        '"message": "", "action": ""}]}'
+        '"flags": [{"type": "MISSING_PART", "message": "", "action": ""}]}'
     )
-    audit_text = _claude_text(system, user, req.shop_id or "", "invoice_audit",
-                              model="claude-haiku-4-5-20251001", max_tokens=2048)
+
+    msg = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=2048,
+        system=system,
+        messages=[{
+            "role": "user",
+            "content": [
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": media_type,
+                        "data": req.image_base64,
+                    },
+                },
+                {"type": "text", "text": user_text},
+            ],
+        }],
+    )
+    _log_usage(req.shop_id or "", "invoice_audit", "claude", "claude-haiku-4-5-20251001",
+               tokens_in=msg.usage.input_tokens, tokens_out=msg.usage.output_tokens,
+               cost=(msg.usage.input_tokens * 0.00000025 + msg.usage.output_tokens * 0.00000125))
+    audit_text = msg.content[0].text
     try:
-        # Strip markdown fences if Claude wrapped the JSON
         clean = audit_text.strip()
         if clean.startswith("```"):
             clean = "\n".join(clean.split("\n")[1:])
         if clean.endswith("```"):
             clean = clean.rsplit("```", 1)[0]
         audit = json.loads(clean.strip())
-        return {**audit, "invoice": invoice_data}
+        return {**audit, "invoice": audit.get("invoice_summary", {})}
     except Exception:
         return {"raw": audit_text, "invoice": invoice_data}
 
