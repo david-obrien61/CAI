@@ -297,25 +297,29 @@ async def invoice_audit(req: AIRequest):
         '"flags": [{"type": "MISSING_PART", "message": "", "action": ""}]}'
     )
 
-    msg = client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=2048,
-        system=system,
-        messages=[{
-            "role": "user",
-            "content": [
-                {
-                    "type": "image",
-                    "source": {
-                        "type": "base64",
-                        "media_type": media_type,
-                        "data": req.image_base64,
+    try:
+        msg = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=2048,
+            system=system,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": media_type,
+                            "data": req.image_base64,
+                        },
                     },
-                },
-                {"type": "text", "text": user_text},
-            ],
-        }],
-    )
+                    {"type": "text", "text": user_text},
+                ],
+            }],
+        )
+    except Exception as e:
+        raise HTTPException(400, f"Could not read image: {str(e)}")
+
     _log_usage(req.shop_id or "", "invoice_audit", "claude", "claude-haiku-4-5-20251001",
                tokens_in=msg.usage.input_tokens, tokens_out=msg.usage.output_tokens,
                cost=(msg.usage.input_tokens * 0.00000025 + msg.usage.output_tokens * 0.00000125))
@@ -329,7 +333,7 @@ async def invoice_audit(req: AIRequest):
         audit = json.loads(clean.strip())
         return {**audit, "invoice": audit.get("invoice_summary", {})}
     except Exception:
-        return {"raw": audit_text, "invoice": invoice_data}
+        return {"raw": audit_text, "invoice": {}}
 
 @ai_router.post("/savings_report")
 async def savings_report(req: AIRequest):
