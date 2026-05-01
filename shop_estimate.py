@@ -62,6 +62,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Mount the unified AI router (/ai/vin_decode, /ai/dtc_decode, etc.)
+from ai_router import ai_router
+app.include_router(ai_router)
+
 # ==========================================
 # 2. CENTRAL DATABASE (Mock Cloud)
 # ==========================================

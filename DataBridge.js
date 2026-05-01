@@ -1,9 +1,11 @@
 /**
  * FILE: DataBridge.js
  * PLATFORM: Universal (Web & Mobile)
- * PURPOSE: Central storage and sync layer for Ignition OS. Handles Local-First persistence, Trial Clock synchronization, and Subscription metadata.
- * DEPENDENCIES: Vanilla JS (localStorage for Web, In-Memory for Mobile with async hooks prepared)
+ * PURPOSE: Central storage and sync layer for Ignition OS. Handles Local-First persistence,
+ *          Supabase cloud sync, Trial Clock synchronization, and Subscription metadata.
  */
+
+import { supabase } from './supabase';
 
 const isWeb = typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
 let memoryStore = {};
@@ -153,27 +155,65 @@ const DataBridge = {
   
   syncQueue: [],
 
+  // ── Shop identity ────────────────────────────────────────────────────────────
+  getShopId: () => {
+    if (memoryStore._shopId) return memoryStore._shopId;
+    if (isWeb) return localStorage.getItem('IGNITION_SHOP_ID');
+    return null;
+  },
+
+  setShopId: (id) => {
+    memoryStore._shopId = id;
+    if (isWeb) localStorage.setItem('IGNITION_SHOP_ID', id);
+  },
+
   /**
-   * CLOUD SYNC: Pulls the central job list from the Python backend
+   * CLOUD SYNC: Pulls jobs from Supabase, falls back to FastAPI, then local cache.
    */
   pullCloudSync: async () => {
+    const shopId = DataBridge.getShopId();
+    if (shopId) {
+      try {
+        const { data, error } = await supabase
+          .from('jobs')
+          .select('*')
+          .eq('shop_id', shopId)
+          .order('created_at', { ascending: false });
+        if (!error && data) {
+          DataBridge.save('active_jobs', data, true);
+          return data;
+        }
+      } catch (err) {
+        console.warn('[DataBridge] Supabase pull failed, trying FastAPI fallback.', err);
+      }
+    }
+    // FastAPI fallback (local dev / offline)
     try {
-      console.log("[DataBridge] Fetching latest jobs from cloud...");
-      const res = await fetch(`${API_URL}/api/jobs`, {
-        cache: 'no-store' // Force browser to bypass cache and always get fresh data
-      });
+      const res = await fetch(`${API_URL}/api/jobs`, { cache: 'no-store' });
       if (res.ok) {
         const serverJobs = await res.json();
-        DataBridge.save('active_jobs', serverJobs, true); // true = skip push to avoid infinite loops
+        DataBridge.save('active_jobs', serverJobs, true);
         return serverJobs;
       }
     } catch (err) {
-      console.error("[DataBridge] Cloud sync failed! Is the Python server running?", err);
+      console.error('[DataBridge] Cloud sync failed — returning local cache.', err);
     }
     return DataBridge.load('active_jobs');
   },
 
   pushCloudSync: async (jobs) => {
+    const shopId = DataBridge.getShopId();
+    if (shopId && Array.isArray(jobs)) {
+      try {
+        // Upsert each job — Supabase handles insert vs update by PK
+        const rows = jobs.map(j => ({ ...j, shop_id: shopId }));
+        await supabase.from('jobs').upsert(rows, { onConflict: 'id' });
+        return;
+      } catch (err) {
+        console.warn('[DataBridge] Supabase push failed, trying FastAPI fallback.', err);
+      }
+    }
+    // FastAPI fallback
     try {
       await fetch(`${API_URL}/api/jobs`, {
         method: 'POST',
@@ -181,8 +221,79 @@ const DataBridge = {
         body: JSON.stringify(jobs)
       });
     } catch (err) {
-      console.error("[DataBridge] Failed to push to cloud! Check API_URL IP address.", err);
+      console.error('[DataBridge] Push failed — job queued for retry.', err);
     }
+  },
+
+  /**
+   * DB: Async Supabase methods for all core tables.
+   * Usage: await DataBridge.db.jobs.getAll()
+   */
+  db: {
+    _shopId: () => DataBridge.getShopId(),
+
+    jobs: {
+      getAll:  async ()      => supabase.from('jobs').select('*').eq('shop_id', DataBridge.getShopId()).order('created_at', { ascending: false }),
+      getOne:  async (id)    => supabase.from('jobs').select('*').eq('id', id).single(),
+      save:    async (job)   => supabase.from('jobs').upsert({ ...job, shop_id: DataBridge.getShopId() }, { onConflict: 'id' }),
+      remove:  async (id)    => supabase.from('jobs').delete().eq('id', id),
+    },
+
+    shop: {
+      get:     async ()      => supabase.from('shops').select('*').eq('id', DataBridge.getShopId()).single(),
+      save:    async (data)  => supabase.from('shops').upsert({ ...data, id: DataBridge.getShopId() }, { onConflict: 'id' }),
+      create:  async (data)  => {
+        const { data: shop, error } = await supabase.from('shops').insert(data).select().single();
+        if (!error && shop) DataBridge.setShopId(shop.id);
+        return { data: shop, error };
+      },
+    },
+
+    users: {
+      getAll:  async ()      => supabase.from('users').select('*').eq('shop_id', DataBridge.getShopId()),
+      save:    async (user)  => supabase.from('users').upsert({ ...user, shop_id: DataBridge.getShopId() }, { onConflict: 'id' }),
+      remove:  async (id)    => supabase.from('users').delete().eq('id', id),
+    },
+
+    purchaseOrders: {
+      getAll:  async ()      => supabase.from('purchase_orders').select('*').eq('shop_id', DataBridge.getShopId()).order('created_at', { ascending: false }),
+      getOne:  async (id)    => supabase.from('purchase_orders').select('*').eq('id', id).single(),
+      save:    async (po)    => supabase.from('purchase_orders').upsert({ ...po, shop_id: DataBridge.getShopId() }, { onConflict: 'id' }),
+      updateStatus: async (id, status, extra = {}) =>
+        supabase.from('purchase_orders').update({ status, ...extra, updated_at: new Date().toISOString() }).eq('id', id),
+    },
+
+    tools: {
+      getAll:  async ()      => supabase.from('tools').select('*').eq('shop_id', DataBridge.getShopId()),
+      getOne:  async (id)    => supabase.from('tools').select('*').eq('id', id).single(),
+      save:    async (tool)  => supabase.from('tools').upsert({ ...tool, shop_id: DataBridge.getShopId() }, { onConflict: 'id' }),
+      updateStatus: async (id, status) =>
+        supabase.from('tools').update({ status }).eq('id', id),
+    },
+
+    pmi: {
+      getForTool: async (toolId) => supabase.from('pmi_schedules').select('*').eq('tool_id', toolId).single(),
+      save:    async (schedule)  => supabase.from('pmi_schedules').upsert({ ...schedule, shop_id: DataBridge.getShopId() }, { onConflict: 'id' }),
+    },
+
+    aiUsage: {
+      getForShop: async (days = 30) => {
+        const since = new Date(Date.now() - days * 86400000).toISOString();
+        return supabase.from('ai_usage').select('*')
+          .eq('shop_id', DataBridge.getShopId())
+          .gte('created_at', since)
+          .order('created_at', { ascending: false });
+      },
+      getCostSummary: async () => {
+        const { data } = await supabase.from('ai_usage').select('provider, cost_usd')
+          .eq('shop_id', DataBridge.getShopId());
+        if (!data) return {};
+        return data.reduce((acc, row) => {
+          acc[row.provider] = (acc[row.provider] || 0) + Number(row.cost_usd);
+          return acc;
+        }, {});
+      },
+    },
   },
 
   /**
