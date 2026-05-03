@@ -50,22 +50,42 @@ def _openai_client():
         raise HTTPException(500, "OPENAI_API_KEY not set")
     return openai.OpenAI(api_key=key)
 
-# ── Usage logger (writes to Supabase ai_usage table) ─────────────────────────
+# ── Supabase client (shared) ──────────────────────────────────────────────────
+
+def _supabase():
+    from supabase import create_client
+    url = os.getenv("VITE_SUPABASE_URL") or os.getenv("SUPABASE_URL")
+    key = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("VITE_SUPABASE_ANON_KEY")
+    if not url or not key:
+        raise RuntimeError("Supabase env vars not set")
+    return create_client(url, key)
+
+# ── Usage logger ──────────────────────────────────────────────────────────────
 
 def _log_usage(shop_id, task, provider, model, tokens_in=0, tokens_out=0, cost=0.0):
     try:
-        from supabase import create_client
-        url = os.getenv("VITE_SUPABASE_URL") or os.getenv("SUPABASE_URL")
-        key = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("VITE_SUPABASE_ANON_KEY")
-        if url and key:
-            sb = create_client(url, key)
-            sb.table("ai_usage").insert({
-                "shop_id": shop_id, "task": task, "provider": provider,
-                "model": model, "tokens_in": tokens_in,
-                "tokens_out": tokens_out, "cost_usd": round(cost, 6)
-            }).execute()
+        _supabase().table("ai_usage").insert({
+            "shop_id": shop_id, "task": task, "provider": provider,
+            "model": model, "tokens_in": tokens_in,
+            "tokens_out": tokens_out, "cost_usd": round(cost, 6)
+        }).execute()
     except Exception as e:
         print(f"[AIRouter] usage log failed (non-fatal): {e}")
+
+# ── Error logger ──────────────────────────────────────────────────────────────
+
+def _log_error(shop_id, error_type, message, endpoint=None, detail=None):
+    try:
+        _supabase().table("error_events").insert({
+            "shop_id":    shop_id or None,
+            "error_type": error_type,
+            "message":    str(message)[:500],
+            "stack":      None,
+            "user_agent": "backend/railway",
+            "metadata":   {"endpoint": endpoint, "detail": str(detail)[:300]} if detail else {"endpoint": endpoint},
+        }).execute()
+    except Exception as e:
+        print(f"[AIRouter] error log failed (non-fatal): {e}")
 
 # ── Shared request model ──────────────────────────────────────────────────────
 
@@ -330,6 +350,7 @@ async def invoice_audit(req: AIRequest):
             }],
         )
     except Exception as e:
+        _log_error(req.shop_id, "AI_CALL", str(e), endpoint="/invoice_audit")
         raise HTTPException(400, f"Could not read image: {str(e)}")
 
     _log_usage(req.shop_id or "", "invoice_audit", "claude", "claude-haiku-4-5-20251001",

@@ -66,6 +66,10 @@ app.add_middleware(
 from ai_router import ai_router
 app.include_router(ai_router)
 
+# Mount the monitor router (/health/ping, /monitor/dashboard, /cron/daily)
+from monitor import monitor_router
+app.include_router(monitor_router)
+
 # ==========================================
 # 2. CENTRAL DATABASE (Mock Cloud)
 # ==========================================
