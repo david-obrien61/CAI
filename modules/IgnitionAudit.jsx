@@ -10,10 +10,11 @@ import React, { useState, useRef } from 'react';
 import {
   FileSearch, Upload, AlertTriangle, CheckCircle2, TrendingUp,
   Package, Droplets, Wrench, DollarSign, History, ChevronDown,
-  ChevronUp, X, ArrowRight, Camera
+  ChevronUp, X, ArrowRight, Camera, ThumbsDown
 } from 'lucide-react';
 import DataBridge from '../DataBridge';
 import AIEngine from '../AIEngine';
+import { supabase } from '../supabase';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -29,6 +30,71 @@ const categoryIcon = (cat) => ({
   CONSUMABLE:  <Package size={14} className="text-amber-400" />,
   LABOR:       <DollarSign size={14} className="text-emerald-400" />,
 }[cat] || <Package size={14} className="text-slate-400" />);
+
+// Maps a finding item name to a concept key for cross-shop alias learning
+const deriveConcept = (item = '', category = '') => {
+  const t = item.toLowerCase();
+  if (/hazmat|disposal|environmental|waste|eco|recycl|recovery fee/.test(t)) return 'WASTE_DISPOSAL_FEE';
+  if (/shop supply|shop supplies|shop fee|consumable|material/.test(t)) return 'SHOP_SUPPLIES_FEE';
+  if (/crush washer|drain plug|dp seal|drain washer|plug gasket/.test(t)) return 'OIL_DRAIN_SEAL';
+  if (/oil filter|air filter|cabin filter/.test(t)) return 'FILTER_' + t.split(' ')[0].toUpperCase();
+  if (category === 'FLUID') return 'FLUID_TOPOFF';
+  return 'GENERAL_' + item.toUpperCase().replace(/\s+/g, '_').slice(0, 30);
+};
+
+// ── Dismiss Button — captures false positives and feeds concept alias learning ─
+const DismissButton = ({ item, category, onDismiss }) => {
+  const [open, setOpen]   = useState(false);
+  const [label, setLabel] = useState('');
+  const [sent, setSent]   = useState(false);
+
+  const submit = async () => {
+    const concept = deriveConcept(item, category);
+    const shopId  = DataBridge.getShopId();
+    // Log to concept_aliases for cross-shop learning
+    if (label.trim()) {
+      await supabase.from('concept_aliases').upsert(
+        { concept, alias: label.trim(), shop_id: shopId, status: 'PENDING' },
+        { onConflict: 'concept,alias', ignoreDuplicates: false }
+      ).then(({ data, error }) => {
+        if (!error) {
+          // Increment confirmed_count if alias already exists
+          supabase.rpc('increment_alias_count', { p_concept: concept, p_alias: label.trim() });
+        }
+      });
+    }
+    DataBridge.trackEvent('AUDIT', 'finding_dismissed', { concept, flagged_item: item, invoice_label: label.trim() || null, category });
+    setSent(true);
+    setTimeout(() => onDismiss(item), 800);
+  };
+
+  if (sent) return <p className="text-[8px] text-emerald-400 font-black uppercase">Thanks — noted</p>;
+
+  return open ? (
+    <div className="mt-2 space-y-2" onClick={e => e.stopPropagation()}>
+      <p className="text-[8px] text-slate-400 uppercase tracking-widest">What did your invoice call this?</p>
+      <input
+        autoFocus
+        value={label}
+        onChange={e => setLabel(e.target.value)}
+        onKeyDown={e => e.key === 'Enter' && submit()}
+        placeholder="e.g. Environmental Fee (optional)"
+        className="w-full bg-slate-700 border border-slate-600 rounded-lg px-2 py-1.5 text-[10px] text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+      />
+      <div className="flex gap-2">
+        <button onClick={submit} className="bg-blue-600 hover:bg-blue-500 text-white text-[8px] font-black px-3 py-1.5 rounded-lg uppercase tracking-widest transition-colors">Submit</button>
+        <button onClick={() => { submit(); }} className="bg-slate-700 hover:bg-slate-600 text-slate-400 text-[8px] font-black px-3 py-1.5 rounded-lg uppercase tracking-widest transition-colors">Skip</button>
+      </div>
+    </div>
+  ) : (
+    <button
+      onClick={e => { e.stopPropagation(); setOpen(true); }}
+      className="mt-1.5 flex items-center gap-1 text-[8px] text-slate-600 hover:text-slate-400 uppercase tracking-widest transition-colors"
+    >
+      <ThumbsDown size={9} /> False positive
+    </button>
+  );
+};
 
 // Resize + compress image before sending — phone cameras produce 4032x3024 (~4MB).
 // Claude only needs ~1200px to read invoice text clearly; this cuts payload 10x.
@@ -58,12 +124,14 @@ const compressImage = (file, maxPx = 1600, quality = 0.82) =>
 
 const AuditResult = ({ result, onSaveToLeakage, onClear }) => {
   const [showInvoice, setShowInvoice] = useState(false);
+  const [dismissed, setDismissed]     = useState(new Set());
   const inv   = result.invoice_summary || {};
-  const miss  = result.missing_charges || [];
-  const unc   = result.inventory_consumed_uncharged || [];
+  const miss  = (result.missing_charges || []).filter(i => !dismissed.has(i.item));
+  const unc   = (result.inventory_consumed_uncharged || []).filter(i => !dismissed.has(i.item));
   const patt  = result.leakage_patterns || [];
   const flags = result.flags || [];
-  const recovery = result.recovery_potential || 0;
+  const recovery = [...miss, ...unc].reduce((sum, i) =>
+    sum + Number(i.estimated_value || (i.qty_estimate * i.unit_cost) || 0), 0);
 
   return (
     <div className="space-y-5">
@@ -142,6 +210,7 @@ const AuditResult = ({ result, onSaveToLeakage, onClear }) => {
                       </p>
                     </div>
                     <p className="text-[9px] text-slate-500 mt-1 leading-relaxed">{item.reason}</p>
+                    <DismissButton item={item.item} category={item.category} onDismiss={name => setDismissed(p => new Set([...p, name]))} />
                   </div>
                 </div>
               );
@@ -158,19 +227,22 @@ const AuditResult = ({ result, onSaveToLeakage, onClear }) => {
           </p>
           <div className="space-y-2">
             {unc.map((item, i) => (
-              <div key={i} className="bg-slate-800 border border-orange-500/20 rounded-2xl p-4 flex justify-between items-center">
-                <div>
-                  <p className="text-sm font-bold text-white">{item.item}</p>
-                  {item.inventory_match && (
-                    <p className="text-[8px] text-orange-400 font-mono mt-0.5">↳ matched: {item.inventory_match}</p>
-                  )}
-                  <p className="text-[9px] text-slate-500 mt-1">
-                    Est. {item.qty_estimate} unit{item.qty_estimate !== 1 ? 's' : ''} · ${Number(item.unit_cost || 0).toFixed(2)} each
+              <div key={i} className="bg-slate-800 border border-orange-500/20 rounded-2xl p-4">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <p className="text-sm font-bold text-white">{item.item}</p>
+                    {item.inventory_match && (
+                      <p className="text-[8px] text-orange-400 font-mono mt-0.5">↳ matched: {item.inventory_match}</p>
+                    )}
+                    <p className="text-[9px] text-slate-500 mt-1">
+                      Est. {item.qty_estimate} unit{item.qty_estimate !== 1 ? 's' : ''} · ${Number(item.unit_cost || 0).toFixed(2)} each
+                    </p>
+                  </div>
+                  <p className="text-sm font-black text-orange-400 flex-shrink-0 ml-4">
+                    −${(Number(item.qty_estimate || 1) * Number(item.unit_cost || 0)).toFixed(2)}
                   </p>
                 </div>
-                <p className="text-sm font-black text-orange-400 flex-shrink-0 ml-4">
-                  −${(Number(item.qty_estimate || 1) * Number(item.unit_cost || 0)).toFixed(2)}
-                </p>
+                <DismissButton item={item.item} category="FLUID" onDismiss={name => setDismissed(p => new Set([...p, name]))} />
               </div>
             ))}
           </div>
