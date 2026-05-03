@@ -445,6 +445,20 @@ const DataBridge = {
    * TRACK: Fire-and-forget usage event to Supabase feature_events table.
    * Lets TRACE monitor which modules/actions are used per shop without blocking the UI.
    */
+  logError: (errorType, message, stack = null, metadata = {}) => {
+    const shopId = DataBridge.getShopId();
+    supabase.from('error_events').insert({
+      shop_id:    shopId || null,
+      error_type: errorType,
+      message:    String(message || '').slice(0, 500),
+      stack:      stack ? String(stack).slice(0, 2000) : null,
+      user_agent: typeof navigator !== 'undefined' ? navigator.userAgent.slice(0, 200) : null,
+      metadata,
+    }).then(({ error }) => {
+      if (error) console.warn('[DataBridge] logError failed:', error.message);
+    });
+  },
+
   trackEvent: (module, action, metadata = {}) => {
     const shopId = DataBridge.getShopId();
     const user   = DataBridge.load('current_user') || {};
