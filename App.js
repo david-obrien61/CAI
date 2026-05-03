@@ -167,9 +167,18 @@ function MainContent() {
   ]);
   const [registry, setRegistry] = useState(() => DataBridge.getRegistry());
 
-  // Startup: hydrate mobile storage first, then cloud sync
+  // Startup: hydrate mobile storage, restore shop_id if missing, then cloud sync
   useEffect(() => {
-    DataBridge.hydrate().then(() => {
+    DataBridge.hydrate().then(async () => {
+      // If shop_id is missing (new device, cleared cache), pull it from Supabase
+      if (!DataBridge.getShopId()) {
+        const { supabase } = await import('./supabase');
+        const { data } = await supabase.from('shops').select('id').limit(1).single();
+        if (data?.id) {
+          DataBridge.setShopId(data.id);
+          console.log('[App] Shop ID restored from Supabase:', data.id);
+        }
+      }
       DataBridge.pullCloudSync().then(serverJobs => {
         if (serverJobs && serverJobs.length > 0) {
           setJobs(serverJobs);
