@@ -167,12 +167,14 @@ function MainContent() {
   ]);
   const [registry, setRegistry] = useState(() => DataBridge.getRegistry());
 
-  // Cloud Sync on Mount
+  // Startup: hydrate mobile storage first, then cloud sync
   useEffect(() => {
-    DataBridge.pullCloudSync().then(serverJobs => {
-      if (serverJobs && serverJobs.length > 0) {
-        setJobs(serverJobs);
-      }
+    DataBridge.hydrate().then(() => {
+      DataBridge.pullCloudSync().then(serverJobs => {
+        if (serverJobs && serverJobs.length > 0) {
+          setJobs(serverJobs);
+        }
+      });
     });
   }, []);
 

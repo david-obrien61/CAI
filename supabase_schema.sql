@@ -106,6 +106,20 @@ create table if not exists ai_usage (
   created_at   timestamptz default now()
 );
 
+-- ── FEATURE USAGE EVENTS (TRACE platform analytics — which shops use what) ──────
+create table if not exists feature_events (
+  id         uuid primary key default gen_random_uuid(),
+  shop_id    uuid references shops(id) on delete cascade,
+  user_role  text,
+  module     text not null,
+  action     text not null,
+  metadata   jsonb default '{}'::jsonb,
+  created_at timestamptz default now()
+);
+create index if not exists feature_events_shop_id_idx  on feature_events(shop_id);
+create index if not exists feature_events_module_idx   on feature_events(module);
+create index if not exists feature_events_created_idx  on feature_events(created_at desc);
+
 -- ── ROW LEVEL SECURITY (each shop sees only its own data) ─────────────────────
 alter table shops           enable row level security;
 alter table users           enable row level security;
@@ -114,6 +128,7 @@ alter table purchase_orders enable row level security;
 alter table tools           enable row level security;
 alter table pmi_schedules   enable row level security;
 alter table ai_usage        enable row level security;
+alter table feature_events  enable row level security;
 
 -- Service-role bypass (your FastAPI backend uses the service key — full access)
 -- Anon/frontend access is blocked until auth is wired up.

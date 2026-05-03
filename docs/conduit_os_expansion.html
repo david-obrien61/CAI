@@ -1,0 +1,797 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Conduit OS — HVAC/Plumbing/Electrical Expansion Strategy</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: #fff; color: #1a1a2e; font-size: 13px; }
+  .page { max-width: 920px; margin: 0 auto; padding: 40px 48px; }
+
+  /* Header */
+  .header { padding-bottom: 20px; margin-bottom: 32px; border-bottom: 3px solid #0f4c35; }
+  .header-top { display: flex; justify-content: space-between; align-items: flex-start; }
+  .logo-area h1 { font-size: 26px; font-weight: 900; color: #0f4c35; letter-spacing: -0.5px; }
+  .logo-area .tagline { font-size: 11px; color: #666; margin-top: 4px; text-transform: uppercase; letter-spacing: 1.5px; }
+  .parent-badge { background: #0f4c35; color: #fff; padding: 6px 14px; border-radius: 20px; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; }
+  .meta { margin-top: 14px; display: flex; gap: 36px; }
+  .meta span { font-size: 11px; color: #444; }
+  .meta strong { color: #0f4c35; }
+
+  /* Section titles */
+  h2 { font-size: 13px; font-weight: 900; color: #0f4c35; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 14px; padding-left: 10px; border-left: 4px solid #22c55e; }
+  h3 { font-size: 12px; font-weight: 700; color: #1a1a2e; margin-bottom: 8px; margin-top: 14px; }
+  h4 { font-size: 11px; font-weight: 700; color: #374151; margin-bottom: 6px; margin-top: 10px; }
+
+  section { margin-bottom: 34px; }
+
+  /* Badges */
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+  .badge-green  { background: #dcfce7; color: #166534; }
+  .badge-yellow { background: #fef9c3; color: #854d0e; }
+  .badge-blue   { background: #dbeafe; color: #1e40af; }
+  .badge-orange { background: #ffedd5; color: #9a3412; }
+  .badge-gray   { background: #f1f5f9; color: #475569; }
+  .badge-teal   { background: #ccfbf1; color: #0f4c35; }
+  .badge-red    { background: #fee2e2; color: #991b1b; }
+
+  /* Divider */
+  .divider { border: none; border-top: 1px solid #e2e8f0; margin: 28px 0; }
+
+  /* Table */
+  table { width: 100%; border-collapse: collapse; font-size: 11.5px; margin-bottom: 12px; }
+  th { background: #0f4c35; color: #fff; padding: 8px 12px; text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+  td { padding: 8px 12px; border-bottom: 1px solid #e2e8f0; vertical-align: top; line-height: 1.4; }
+  tr:nth-child(even) td { background: #f8fafc; }
+  tr:hover td { background: #f0fdf4; }
+
+  /* Cards */
+  .card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; }
+  .card-green { background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px; padding: 16px; }
+  .card-yellow { background: #fefce8; border: 1px solid #fde68a; border-radius: 8px; padding: 16px; }
+  .card-blue { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 16px; }
+  .card-orange { background: #fff7ed; border: 1px solid #fdba74; border-radius: 8px; padding: 16px; }
+
+  /* Grid */
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+  .three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; margin-bottom: 16px; }
+  .four-col { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+
+  /* Stat boxes */
+  .stat { text-align: center; padding: 16px 12px; }
+  .stat .number { font-size: 28px; font-weight: 900; color: #0f4c35; }
+  .stat .unit { font-size: 12px; font-weight: 700; color: #0f4c35; }
+  .stat .label { font-size: 10px; color: #64748b; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+
+  /* Tile cards */
+  .tile { border-radius: 8px; padding: 12px 14px; margin-bottom: 8px; }
+  .tile-carry { background: #f0fdf4; border: 1px solid #86efac; }
+  .tile-adapt { background: #fefce8; border: 1px solid #fde68a; }
+  .tile-new   { background: #eff6ff; border: 1px solid #93c5fd; }
+  .tile-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+  .tile-name { font-weight: 800; font-size: 12px; }
+  .tile-desc { font-size: 11px; color: #555; line-height: 1.4; }
+  .tile-effort { font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; }
+  .effort-zero { background: #dcfce7; color: #166534; }
+  .effort-low  { background: #fef9c3; color: #854d0e; }
+  .effort-med  { background: #ffedd5; color: #9a3412; }
+  .effort-high { background: #fee2e2; color: #991b1b; }
+
+  /* Platform diagram */
+  .platform-row { display: flex; gap: 8px; margin-bottom: 6px; align-items: stretch; }
+  .platform-label { font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: #94a3b8; min-width: 70px; display: flex; align-items: center; justify-content: flex-end; padding-right: 10px; }
+  .platform-block { flex: 1; background: #0f4c35; color: #fff; padding: 8px 12px; border-radius: 6px; font-size: 10px; font-weight: 700; text-align: center; }
+  .platform-block-gray { flex: 1; background: #1e3a5f; color: #fff; padding: 8px 12px; border-radius: 6px; font-size: 10px; font-weight: 700; text-align: center; }
+  .platform-block-light { flex: 1; background: #dbeafe; color: #1e40af; padding: 8px 12px; border-radius: 6px; font-size: 10px; font-weight: 700; text-align: center; }
+  .platform-block-green { flex: 1; background: #dcfce7; color: #166534; padding: 8px 12px; border-radius: 6px; font-size: 10px; font-weight: 700; text-align: center; }
+
+  /* Timeline */
+  .timeline { position: relative; padding-left: 24px; }
+  .timeline::before { content: ''; position: absolute; left: 8px; top: 0; bottom: 0; width: 2px; background: #e2e8f0; }
+  .timeline-item { position: relative; margin-bottom: 20px; }
+  .timeline-dot { position: absolute; left: -20px; top: 3px; width: 12px; height: 12px; border-radius: 50%; background: #0f4c35; border: 2px solid #fff; box-shadow: 0 0 0 2px #0f4c35; }
+  .timeline-dot-gray { background: #94a3b8; box-shadow: 0 0 0 2px #94a3b8; }
+  .timeline-head { font-weight: 800; font-size: 12px; color: #0f4c35; }
+  .timeline-head-gray { font-weight: 800; font-size: 12px; color: #94a3b8; }
+  .timeline-body { font-size: 11px; color: #555; margin-top: 4px; line-height: 1.5; }
+
+  /* Code */
+  .code { background: #0f172a; color: #94a3b8; padding: 10px 14px; border-radius: 6px; font-family: 'Courier New', monospace; font-size: 10.5px; line-height: 1.6; margin-bottom: 8px; }
+  .code .kw  { color: #7dd3fc; }
+  .code .str { color: #86efac; }
+  .code .cmt { color: #475569; }
+
+  /* URL diagram */
+  .url-tree { font-family: 'Courier New', monospace; font-size: 11px; background: #0f172a; color: #94a3b8; padding: 16px 20px; border-radius: 8px; line-height: 2; }
+  .url-tree .domain { color: #7dd3fc; font-weight: 700; }
+  .url-tree .sub { color: #86efac; }
+  .url-tree .desc { color: #475569; }
+
+  /* Footer */
+  .footer { border-top: 2px solid #e2e8f0; padding-top: 16px; margin-top: 40px; display: flex; justify-content: space-between; align-items: center; }
+  .footer div { font-size: 10px; color: #94a3b8; line-height: 1.6; }
+
+  /* Print */
+  @media print {
+    .page { padding: 20px 32px; }
+    section { page-break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- HEADER -->
+  <div class="header">
+    <div class="header-top">
+      <div class="logo-area">
+        <h1>Conduit OS</h1>
+        <div class="tagline">HVAC · Plumbing · Electrical — Expansion Strategy & Build Plan</div>
+      </div>
+      <div>
+        <div class="parent-badge">Built with CAI</div>
+        <div style="font-size:10px; color:#666; margin-top:6px; text-align:right;">A TRACE Enterprises Platform</div>
+      </div>
+    </div>
+    <div class="meta">
+      <span><strong>Prepared by:</strong> TRACE Enterprises</span>
+      <span><strong>Date:</strong> May 2, 2026</span>
+      <span><strong>Status:</strong> Pre-build Planning</span>
+      <span><strong>Predecessor:</strong> Ignition OS (Auto/Diesel — Pilot active)</span>
+    </div>
+  </div>
+
+  <!-- SECTION 1: MARKET OPPORTUNITY -->
+  <section>
+    <h2>1. Market Opportunity</h2>
+    <div class="four-col">
+      <div class="card stat">
+        <div class="number">$180</div><div class="unit">B</div>
+        <div class="label">HVAC Services Market (US)</div>
+      </div>
+      <div class="card stat">
+        <div class="number">$130</div><div class="unit">B</div>
+        <div class="label">Plumbing Services Market (US)</div>
+      </div>
+      <div class="card stat">
+        <div class="number">$210</div><div class="unit">B</div>
+        <div class="label">Electrical Contractors (US)</div>
+      </div>
+      <div class="card stat">
+        <div class="number">94</div><div class="unit">%</div>
+        <div class="label">Are SMB Owner-Operators</div>
+      </div>
+    </div>
+
+    <h3>Why This Vertical Is the Right Next Step</h3>
+    <table>
+      <tr>
+        <th>Pain Point</th>
+        <th>Auto Shop Reality</th>
+        <th>HVAC/Plumbing Reality</th>
+        <th>CAI Solution</th>
+      </tr>
+      <tr>
+        <td>Margin blindness</td>
+        <td>Charges flat rates, doesn't know true part cost</td>
+        <td>Charges time & material, loses 15–25% on parts markup</td>
+        <td>Margin Engine — identical to Ignition OS</td>
+      </tr>
+      <tr>
+        <td>Paper-based workflow</td>
+        <td>Paper ROs, whiteboard job board</td>
+        <td>Paper service tickets, clipboard sign-offs</td>
+        <td>Digital job flow, customer approval portal</td>
+      </tr>
+      <tr>
+        <td>Tools walking off</td>
+        <td>$50K+ in shop tools untracked</td>
+        <td>Manifolds, gauges, cameras — same problem</td>
+        <td>Tool tracking with barcode — zero new code</td>
+      </tr>
+      <tr>
+        <td>Tech accountability</td>
+        <td>Can't prove what tech did what job</td>
+        <td>Can't prove what tech was at which site</td>
+        <td>PIN auth + labor ledger — identical</td>
+      </tr>
+      <tr>
+        <td>Regulatory exposure</td>
+        <td>DOT compliance for fleet shops</td>
+        <td>EPA Section 608 refrigerant tracking</td>
+        <td>New compliance tile — moderate build</td>
+      </tr>
+      <tr>
+        <td>Recurring revenue blind spot</td>
+        <td>Doesn't track which customers return</td>
+        <td>Maintenance agreements not systematized</td>
+        <td>New: Service Agreement Manager</td>
+      </tr>
+    </table>
+
+    <div class="two-col" style="margin-top:4px;">
+      <div class="card-green">
+        <h3 style="color:#166534; margin-top:0;">Competitive Landscape Gap</h3>
+        <p style="font-size:11px; color:#14532d; line-height:1.6;">
+          The dominant software in HVAC field service — ServiceTitan, Housecall Pro, Jobber — starts at
+          <strong>$199–$599/month</strong> and requires weeks of setup. They target companies with
+          5+ trucks and a dedicated office manager.<br><br>
+          <strong>The 1–3 truck owner-operator is completely underserved.</strong>
+          That is Conduit OS's exact target — the same profile as the auto shops in the Ignition OS pilot.
+        </p>
+      </div>
+      <div class="card-orange">
+        <h3 style="color:#9a3412; margin-top:0;">The Sales Motion Is Identical</h3>
+        <p style="font-size:11px; color:#7c2d12; line-height:1.6;">
+          Cold call the owner. Walk into the shop or dispatch office.
+          Leave the hardware kit. Show the margin gap on their own numbers.
+          The pitch hook changes from <em>"what you charge vs. what your slab recommends"</em>
+          to <em>"what you charge vs. what your parts actually cost you."</em><br><br>
+          Same RAM mount. Same Anker cable. Same 14-day trial. Same $38 CAC.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <hr class="divider">
+
+  <!-- SECTION 2: PLATFORM ARCHITECTURE — SHARED CORE -->
+  <section>
+    <h2>2. Platform Architecture — What CAI Shares Across All Verticals</h2>
+    <p style="color:#444; line-height:1.6; margin-bottom:16px; font-size:12px;">
+      The CAI platform is the engine. Ignition OS and Conduit OS are skins.
+      Every component below is written once and deployed to all verticals with zero modification.
+      This is the 80% reuse claim — proven by mapping each module against Conduit OS requirements.
+    </p>
+
+    <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:20px; margin-bottom:16px;">
+      <div class="platform-row">
+        <div class="platform-label">Database</div>
+        <div class="platform-block">Supabase PostgreSQL</div>
+        <div class="platform-block">Multi-tenant UUID isolation</div>
+        <div class="platform-block">Row Level Security</div>
+        <div class="platform-block">Real-time subscriptions</div>
+      </div>
+      <div class="platform-row">
+        <div class="platform-label">Data Layer</div>
+        <div class="platform-block-gray">DataBridge.js</div>
+        <div class="platform-block-gray">Local-first + cloud sync</div>
+        <div class="platform-block-gray">Offline queue</div>
+        <div class="platform-block-gray">Trial clock engine</div>
+      </div>
+      <div class="platform-row">
+        <div class="platform-label">AI Layer</div>
+        <div class="platform-light" style="flex:1; background:#7c3aed; color:#fff; padding:8px 12px; border-radius:6px; font-size:10px; font-weight:700; text-align:center;">Claude (reasoning)</div>
+        <div class="platform-light" style="flex:1; background:#7c3aed; color:#fff; padding:8px 12px; border-radius:6px; font-size:10px; font-weight:700; text-align:center;">Gemini (vision)</div>
+        <div class="platform-light" style="flex:1; background:#7c3aed; color:#fff; padding:8px 12px; border-radius:6px; font-size:10px; font-weight:700; text-align:center;">Whisper (voice)</div>
+        <div class="platform-light" style="flex:1; background:#7c3aed; color:#fff; padding:8px 12px; border-radius:6px; font-size:10px; font-weight:700; text-align:center;">AIEngine.js router</div>
+      </div>
+      <div class="platform-row">
+        <div class="platform-label">Auth</div>
+        <div class="platform-block-light">PIN keypad (web)</div>
+        <div class="platform-block-light">TechKeypad (mobile)</div>
+        <div class="platform-block-light">Session guard (5-min lock)</div>
+        <div class="platform-block-light">Role-based routing</div>
+      </div>
+      <div class="platform-row">
+        <div class="platform-label">Billing</div>
+        <div class="platform-block-green">Margin Engine</div>
+        <div class="platform-block-green">Tier subscription system</div>
+        <div class="platform-block-green">Trial clock + blur</div>
+        <div class="platform-block-green">QuickBooks sync</div>
+      </div>
+      <div class="platform-row">
+        <div class="platform-label">Backend</div>
+        <div class="platform-block">FastAPI (Python / Railway)</div>
+        <div class="platform-block">AI router</div>
+        <div class="platform-block">QBO OAuth bridge</div>
+        <div class="platform-block">AI usage logging</div>
+      </div>
+    </div>
+
+    <div class="card-green" style="margin-top:4px;">
+      <strong style="font-size:12px; color:#166534;">The investor-facing truth:</strong>
+      <span style="font-size:12px; color:#14532d;">
+        Every dollar spent building the CAI core for Ignition OS is already paid for.
+        Conduit OS inherits this entire stack. The incremental cost to launch a new vertical
+        is tiles, prompts, and integrations — not infrastructure.
+      </span>
+    </div>
+  </section>
+
+  <hr class="divider">
+
+  <!-- SECTION 3: TILE MAPPING -->
+  <section>
+    <h2>3. Module & Tile Mapping — Ignition OS → Conduit OS</h2>
+
+    <div class="three-col" style="margin-bottom:16px;">
+      <div style="text-align:center; padding:10px; background:#f0fdf4; border:1px solid #86efac; border-radius:8px;">
+        <div style="font-size:20px; margin-bottom:4px;">✓</div>
+        <div style="font-weight:800; font-size:11px; color:#166534;">CARRY OVER</div>
+        <div style="font-size:10px; color:#555; margin-top:4px;">Zero code change — deploy as-is</div>
+      </div>
+      <div style="text-align:center; padding:10px; background:#fefce8; border:1px solid #fde68a; border-radius:8px;">
+        <div style="font-size:20px; margin-bottom:4px;">↻</div>
+        <div style="font-weight:800; font-size:11px; color:#854d0e;">ADAPT</div>
+        <div style="font-size:10px; color:#555; margin-top:4px;">Re-skin, re-label, re-prompt — light effort</div>
+      </div>
+      <div style="text-align:center; padding:10px; background:#eff6ff; border:1px solid #93c5fd; border-radius:8px;">
+        <div style="font-size:20px; margin-bottom:4px;">★</div>
+        <div style="font-weight:800; font-size:11px; color:#1e40af;">NEW BUILD</div>
+        <div style="font-size:10px; color:#555; margin-top:4px;">Net-new tiles specific to this vertical</div>
+      </div>
+    </div>
+
+    <!-- CARRY OVER -->
+    <h3>Carry Over — Zero Modification Required</h3>
+
+    <div class="tile tile-carry">
+      <div class="tile-header">
+        <span class="tile-name">DataBridge.js + supabase.js</span>
+        <span class="tile-effort effort-zero">0 hours</span>
+      </div>
+      <div class="tile-desc">Universal data layer. shop_id isolation, cloud sync, offline queue, trial clock — all vertical-agnostic. Deploy identical.</div>
+    </div>
+
+    <div class="tile tile-carry">
+      <div class="tile-header">
+        <span class="tile-name">AIEngine.js — Claude / Gemini / Whisper Router</span>
+        <span class="tile-effort effort-zero">0 hours</span>
+      </div>
+      <div class="tile-desc">The AI routing layer is completely prompt-driven. The engine doesn't change — only the prompts sent to it change per vertical. Zero code change.</div>
+    </div>
+
+    <div class="tile tile-carry">
+      <div class="tile-header">
+        <span class="tile-name">TechKeypad (Mobile) + PIN Auth (Web)</span>
+        <span class="tile-effort effort-zero">0 hours</span>
+      </div>
+      <div class="tile-desc">4-digit PIN, haptics, session guard, auto-lock — identical for HVAC techs. Technicians, dispatchers, and owners all use the same auth model.</div>
+    </div>
+
+    <div class="tile tile-carry">
+      <div class="tile-header">
+        <span class="tile-name">Margin Engine</span>
+        <span class="tile-effort effort-zero">0 hours</span>
+      </div>
+      <div class="tile-desc">Cost slab multipliers, tier discounts, overhead allocation — the margin problem in HVAC is identical. A $40 filter marked up to $90 is the same math as a $40 shop part.</div>
+    </div>
+
+    <div class="tile tile-carry">
+      <div class="tile-header">
+        <span class="tile-name">Tool Tracking (Barcode)</span>
+        <span class="tile-effort effort-zero">0 hours</span>
+      </div>
+      <div class="tile-desc">HVAC techs have manifold gauges, refrigerant scales, pipe cameras, leak detectors — all high-value, all going on trucks. Same barcode system, same schema.</div>
+    </div>
+
+    <div class="tile tile-carry">
+      <div class="tile-header">
+        <span class="tile-name">QuickBooks Connector</span>
+        <span class="tile-effort effort-zero">0 hours</span>
+      </div>
+      <div class="tile-desc">HVAC contractors use QBO at the same rate as auto shops. The OAuth bridge, sync logic, and invoice push are all identical. Deploy unchanged.</div>
+    </div>
+
+    <div class="tile tile-carry">
+      <div class="tile-header">
+        <span class="tile-name">Trial Clock + Tier Subscription System</span>
+        <span class="tile-effort effort-zero">0 hours</span>
+      </div>
+      <div class="tile-desc">14-day trial, savings report on day 12, blur on day 15, archive on day 30. STARTER/PRO/PREMIER pricing tiers. Same structure, different vertical skin on the pricing page.</div>
+    </div>
+
+    <div class="tile tile-carry">
+      <div class="tile-header">
+        <span class="tile-name">Customer Approval Portal (IgnitionPort)</span>
+        <span class="tile-effort effort-zero">0 hours (re-label only)</span>
+      </div>
+      <div class="tile-desc">Customer gets a link, views the quote, approves digitally. In HVAC this is the repair authorization before a tech replaces a compressor. Functionally identical.</div>
+    </div>
+
+    <div class="tile tile-carry">
+      <div class="tile-header">
+        <span class="tile-name">AI Usage Logger + Cost Tracker</span>
+        <span class="tile-effort effort-zero">0 hours</span>
+      </div>
+      <div class="tile-desc">Per-shop token tracking, cost allocation, provider breakdown. Runs identically across all verticals — just different AI tasks logged.</div>
+    </div>
+
+    <div class="tile tile-carry">
+      <div class="tile-header">
+        <span class="tile-name">FastAPI Backend (Railway)</span>
+        <span class="tile-effort effort-zero">0 hours (new routes added)</span>
+      </div>
+      <div class="tile-desc">The Python backend deploys unchanged. New vertical-specific API routes are additive — they don't touch existing Ignition OS routes.</div>
+    </div>
+
+    <!-- ADAPT -->
+    <h3 style="margin-top:20px;">Adapt — Re-skin / Re-label / Re-prompt</h3>
+
+    <div class="tile tile-adapt">
+      <div class="tile-header">
+        <span class="tile-name">Job Intake → Service Ticket Intake</span>
+        <span class="tile-effort effort-low">4–6 hrs</span>
+      </div>
+      <div class="tile-desc">
+        <strong>What changes:</strong> "Vehicle" → "Equipment/Unit", VIN decode → Equipment model lookup (AHRI number, serial, install date, location/address). Same intake flow, same status engine, different field labels and AI prompts.<br>
+        <strong>New field:</strong> Service address (HVAC goes to the customer's location — auto shops don't).
+      </div>
+    </div>
+
+    <div class="tile tile-adapt">
+      <div class="tile-header">
+        <span class="tile-name">PMI Engine → Maintenance Schedule Manager</span>
+        <span class="tile-effort effort-low">3–4 hrs</span>
+      </div>
+      <div class="tile-desc">
+        <strong>What changes:</strong> PMI tasks re-prompted for HVAC (filter changes, coil cleaning, refrigerant check, belt inspection) vs. auto (oil changes, brake checks). The scheduling engine, override logic, and Supabase schema are identical. Only the default task templates change.
+      </div>
+    </div>
+
+    <div class="tile tile-adapt">
+      <div class="tile-header">
+        <span class="tile-name">Fleet / HUB → Dispatch Board</span>
+        <span class="tile-effort effort-low">6–8 hrs</span>
+      </div>
+      <div class="tile-desc">
+        <strong>What changes:</strong> "Trucks" and "fleet units" become "technician routes" with service addresses as destinations. The GPS ping infrastructure already exists (driver_lat/lng in POs). Enhance the map view, add route optimization display, real-time tech status. The HUB module is ~70% of this already.
+      </div>
+    </div>
+
+    <div class="tile tile-adapt">
+      <div class="tile-header">
+        <span class="tile-name">Admin Dashboard (OmniDashboard) → Conduit Command</span>
+        <span class="tile-effort effort-low">4–5 hrs</span>
+      </div>
+      <div class="tile-desc">
+        <strong>What changes:</strong> KPI tiles re-labeled (jobs in bay → calls dispatched, RO count → tickets closed, bay utilization → tech utilization). New KPI: maintenance agreements active. Color palette shifts from Ignition blue-slate to Conduit green-slate. Brand assets only — zero logic changes.
+      </div>
+    </div>
+
+    <div class="tile tile-adapt">
+      <div class="tile-header">
+        <span class="tile-name">Onboarding Wizard → Conduit Setup Wizard</span>
+        <span class="tile-effort effort-low">3–4 hrs</span>
+      </div>
+      <div class="tile-desc">
+        <strong>What changes:</strong> Questions re-worded for HVAC context (trade type: HVAC/Plumbing/Electrical, number of trucks, EPA certification status). Onboarding path logic identical — MARGIN path, DIAGNOSE path, MIGRATE path all still apply.
+      </div>
+    </div>
+
+    <div class="tile tile-adapt">
+      <div class="tile-header">
+        <span class="tile-name">Voice Command Module → Conduit Voice</span>
+        <span class="tile-effort effort-low">2–3 hrs</span>
+      </div>
+      <div class="tile-desc">
+        <strong>What changes:</strong> Voice command prompts re-written for HVAC terminology ("log refrigerant charge", "add filter to parts", "mark coil cleaning complete"). Whisper transcription and Claude reasoning layers unchanged — only the command-matching prompts update.
+      </div>
+    </div>
+
+    <div class="tile tile-adapt">
+      <div class="tile-header">
+        <span class="tile-name">Invoice Audit (Gemini Vision) → Equipment Inspection</span>
+        <span class="tile-effort effort-low">3–4 hrs</span>
+      </div>
+      <div class="tile-desc">
+        <strong>What changes:</strong> In Ignition OS, Gemini reads invoices. In Conduit OS, Gemini reads equipment photos — age estimation from unit label, refrigerant type identification, damage assessment, nameplate data extraction. Same Gemini vision call, completely different prompt and output schema.
+      </div>
+    </div>
+
+    <!-- NEW BUILD -->
+    <h3 style="margin-top:20px;">New Build — Net-New Tiles for Conduit OS</h3>
+
+    <div class="tile tile-new">
+      <div class="tile-header">
+        <span class="tile-name">★ Equipment Registry</span>
+        <span class="tile-effort effort-med">8–10 hrs</span>
+      </div>
+      <div class="tile-desc">
+        <strong>What it is:</strong> A database of every HVAC unit, boiler, water heater, or panel the contractor has ever serviced — linked to a customer address. Think of it as the "vehicle database" equivalent.<br>
+        <strong>Fields:</strong> Equipment type, make/model/serial, install date, refrigerant type, warranty expiry, service address, assigned tech, service history.<br>
+        <strong>AI hook:</strong> Gemini reads the nameplate photo on first visit — auto-populates the registry. Zero data entry for the tech.
+      </div>
+    </div>
+
+    <div class="tile tile-new">
+      <div class="tile-header">
+        <span class="tile-name">★ Refrigerant Tracking (EPA 608 Compliance)</span>
+        <span class="tile-effort effort-med">8–12 hrs</span>
+      </div>
+      <div class="tile-desc">
+        <strong>What it is:</strong> EPA Section 608 requires certified technicians to log every refrigerant purchase, recovery, and charge. Current tracking is paper or spreadsheet — creating significant compliance risk.<br>
+        <strong>CAI value:</strong> Every service ticket automatically prompts refrigerant logging. Monthly summary report for EPA records. Certificate expiry reminders for techs.<br>
+        <strong>The close:</strong> "An EPA violation fine starts at $44,539 per day per violation. Our log costs $299/month."
+      </div>
+    </div>
+
+    <div class="tile tile-new">
+      <div class="tile-header">
+        <span class="tile-name">★ Maintenance Agreement Manager</span>
+        <span class="tile-effort effort-med">10–14 hrs</span>
+      </div>
+      <div class="tile-desc">
+        <strong>What it is:</strong> HVAC contractors' most valuable revenue stream — annual service agreements ($150–300/unit/year) that guarantee two visits. Most small contractors track these in a notebook or not at all.<br>
+        <strong>CAI value:</strong> Create agreements, auto-schedule PM visits, send renewal reminders, track agreement revenue vs. one-off revenue. Dashboard shows monthly recurring revenue (MRR) — a metric most shop owners have never seen.<br>
+        <strong>The hook:</strong> 20 agreements at $200/year = $4,000 guaranteed revenue before opening the doors in January.
+      </div>
+    </div>
+
+    <div class="tile tile-new">
+      <div class="tile-header">
+        <span class="tile-name">★ Parts Van Inventory</span>
+        <span class="tile-effort effort-med">6–8 hrs</span>
+      </div>
+      <div class="tile-desc">
+        <strong>What it is:</strong> Unlike a shop where parts are in a stock room, HVAC techs carry $5,000–20,000 in parts on their trucks. Tracking what's on which truck, what got used, what needs restocking is a daily pain point.<br>
+        <strong>CAI value:</strong> Each tech has a van inventory profile. Parts used on a ticket auto-deduct from van stock. Low-stock alerts trigger reorder. Cross-referenced to Margin Engine for true cost-of-goods-sold.
+      </div>
+    </div>
+
+    <div class="tile tile-new">
+      <div class="tile-header">
+        <span class="tile-name">★ Permit Tracker</span>
+        <span class="tile-effort effort-low">4–6 hrs</span>
+      </div>
+      <div class="tile-desc">
+        <strong>What it is:</strong> HVAC system replacements and electrical work require building permits in most jurisdictions. Tracking permit status, inspection dates, and final sign-off is currently done on whiteboards or sticky notes.<br>
+        <strong>CAI value:</strong> Link a permit to a job ticket. Log application, approval, inspection, and close dates. Alert when a permit is approaching expiry without final sign-off.
+      </div>
+    </div>
+
+    <div class="tile tile-new">
+      <div class="tile-header">
+        <span class="tile-name">★ Energy Efficiency Report (Customer-Facing)</span>
+        <span class="tile-effort effort-low">5–6 hrs</span>
+      </div>
+      <div class="tile-desc">
+        <strong>What it is:</strong> After each visit, Claude generates a plain-English efficiency report for the homeowner: equipment age, SEER rating vs. current standards, estimated energy cost vs. new system cost, recommendation.<br>
+        <strong>The close:</strong> This is the replacement upsell tool. A homeowner who sees "your 2009 unit costs you ~$180/month more to run than a new SEER 18 system" makes the decision themselves. The tech doesn't have to sell.<br>
+        <strong>AI hook:</strong> Claude generates the report from the service ticket data. Gemini reads the nameplate for the spec data.
+      </div>
+    </div>
+  </section>
+
+  <hr class="divider">
+
+  <!-- SECTION 4: BUILD SUMMARY -->
+  <section>
+    <h2>4. Build Summary</h2>
+
+    <table>
+      <tr>
+        <th>Category</th>
+        <th>Module Count</th>
+        <th>Estimated Hours</th>
+        <th>Status</th>
+      </tr>
+      <tr>
+        <td><strong>Carry Over</strong> — zero modification</td>
+        <td>10 modules</td>
+        <td>0 hours</td>
+        <td><span class="badge badge-green">Done — inherited from Ignition OS</span></td>
+      </tr>
+      <tr>
+        <td><strong>Adapt</strong> — re-skin / re-prompt</td>
+        <td>7 modules</td>
+        <td>25–34 hours</td>
+        <td><span class="badge badge-yellow">Light build — UI + prompt work</span></td>
+      </tr>
+      <tr>
+        <td><strong>New Build</strong> — net-new tiles</td>
+        <td>6 modules</td>
+        <td>41–56 hours</td>
+        <td><span class="badge badge-blue">New development required</span></td>
+      </tr>
+      <tr style="background:#f0fdf4;">
+        <td><strong>Total</strong></td>
+        <td><strong>23 modules</strong></td>
+        <td><strong>66–90 hours</strong></td>
+        <td><span class="badge badge-teal">~80% reuse from Ignition OS</span></td>
+      </tr>
+    </table>
+
+    <div class="card-green" style="margin-top:8px;">
+      <strong style="color:#166534;">What 80% reuse actually means in dollars:</strong>
+      <span style="font-size:12px; color:#14532d;">
+        Ignition OS took the equivalent of months of development work to reach pilot stage.
+        Conduit OS reaches feature parity in roughly 66–90 hours of focused build time
+        because the infrastructure, auth, data layer, AI routing, billing, and QBO integration
+        are already written, tested, and running in production.
+      </span>
+    </div>
+  </section>
+
+  <hr class="divider">
+
+  <!-- SECTION 5: PRICING -->
+  <section>
+    <h2>5. Pricing — Conduit OS</h2>
+    <p style="color:#444; line-height:1.6; margin-bottom:14px; font-size:12px;">
+      Same tier structure as Ignition OS. HVAC contractors are accustomed to paying more for software —
+      ServiceTitan starts at $398/month. These prices are positioned as the accessible alternative.
+    </p>
+
+    <table>
+      <tr>
+        <th>Tier</th>
+        <th>Price</th>
+        <th>Users</th>
+        <th>Key Features</th>
+        <th>Target Customer</th>
+      </tr>
+      <tr>
+        <td><strong>STARTER</strong></td>
+        <td>$149/mo</td>
+        <td>3 users</td>
+        <td>Tickets, parts, labor, tool tracking, QBO</td>
+        <td>1-truck owner-operator</td>
+      </tr>
+      <tr>
+        <td><strong>PROFESSIONAL</strong></td>
+        <td>$299/mo</td>
+        <td>8 users</td>
+        <td>+ AI bundle, maintenance agreements, refrigerant tracking, van inventory</td>
+        <td>2–4 truck shop</td>
+      </tr>
+      <tr>
+        <td><strong>PREMIER</strong></td>
+        <td>$499/mo</td>
+        <td>Unlimited</td>
+        <td>+ Dispatch board, permit tracker, energy reports, multi-location</td>
+        <td>5+ truck operation</td>
+      </tr>
+    </table>
+
+    <div class="two-col" style="margin-top:8px;">
+      <div class="card">
+        <h3 style="margin-top:0;">Refrigerant compliance module</h3>
+        <p style="font-size:11px; color:#555; line-height:1.5;">
+          Consider offering the Refrigerant Tracker as a standalone add-on at
+          <strong>$29/month</strong> for STARTER tier shops who need compliance
+          but aren't ready for the full AI bundle. Low friction entry point,
+          high retention — compliance modules create lock-in.
+        </p>
+      </div>
+      <div class="card">
+        <h3 style="margin-top:0;">Maintenance agreement upside</h3>
+        <p style="font-size:11px; color:#555; line-height:1.5;">
+          A shop with 30 active maintenance agreements at $200/unit/year
+          has $6,000 in locked recurring revenue. Conduit OS makes that visible.
+          The pitch: <em>"We help you build your own recurring revenue before you need it."</em>
+          This resonates with HVAC owners far more than margin talk.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <hr class="divider">
+
+  <!-- SECTION 6: REPO & URL STRUCTURE -->
+  <section>
+    <h2>6. Repository & URL Architecture</h2>
+
+    <h3>GitHub Organization Structure — TRACE Enterprises</h3>
+    <div class="code">
+<span class="cmt"># GitHub Organization: TRACE-Enterprises</span>
+<span class="cmt"># ─────────────────────────────────────────────────────</span>
+
+TRACE-Enterprises/
+  <span class="kw">cai-core</span>/          <span class="cmt"># Shared platform — DataBridge, AIEngine, Supabase schema</span>
+  <span class="kw">ignition-os</span>/       <span class="cmt"># Auto/Diesel vertical (moved from david-obrien61/CAI)</span>
+  <span class="kw">conduit-os</span>/        <span class="cmt"># HVAC/Plumbing/Electrical vertical (new)</span>
+  <span class="kw">builtwithcai-web</span>/  <span class="cmt"># Platform landing page — builtwithcai.com</span>
+</div>
+
+    <h3>URL Architecture</h3>
+    <div class="url-tree">
+<span class="domain">builtwithcai.com</span>              <span class="desc">← Platform landing page. Lists all products. Investor story.</span>
+│
+├── <span class="sub">ignition-os.builtwithcai.com</span>  <span class="desc">← Auto shop product page</span>
+│   └── app.ignition-os.com            <span class="desc">← The running web app (Railway deploy)</span>
+│
+├── <span class="sub">conduit-os.builtwithcai.com</span>   <span class="desc">← HVAC product page</span>
+│   └── app.conduit-os.com             <span class="desc">← The running web app (Railway deploy)</span>
+│
+└── <span class="sub">docs.builtwithcai.com</span>         <span class="desc">← Developer / partner documentation</span>
+
+<span class="desc">
+Domains to purchase:</span>
+  <span class="kw">ignition-os.com</span>   <span class="desc">✓ Already purchased — redirect to ignition-os.builtwithcai.com</span>
+  <span class="kw">conduit-os.com</span>    <span class="desc">← Purchase next (~$0.01 first year on 3yr term)</span>
+  <span class="kw">builtwithcai.com</span>  <span class="desc">✓ Already purchased — platform home</span>
+    </div>
+
+    <div class="two-col" style="margin-top:12px;">
+      <div class="card-green">
+        <h3 style="color:#166534; margin-top:0;">Why subdomains, not separate domains, for the apps</h3>
+        <p style="font-size:11px; color:#14532d; line-height:1.5;">
+          One Railway project can serve multiple subdomains. One SSL certificate covers *.builtwithcai.com.
+          One deployment pipeline. As you add Anchor OS, FieldOS, and future verticals — each gets a subdomain,
+          zero new infrastructure cost.
+        </p>
+      </div>
+      <div class="card-blue">
+        <h3 style="color:#1e40af; margin-top:0;">Why keep the product .com domains</h3>
+        <p style="font-size:11px; color:#1e40af; line-height:1.5;">
+          When you cold call a HVAC contractor, you hand them a card that says <strong>conduit-os.com</strong>.
+          Not builtwithcai.com/conduit. The product domain is for sales.
+          The platform domain is for investors. Both point at the same place.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <hr class="divider">
+
+  <!-- SECTION 7: LAUNCH TIMELINE -->
+  <section>
+    <h2>7. Recommended Launch Timeline</h2>
+
+    <div class="timeline">
+      <div class="timeline-item">
+        <div class="timeline-dot"></div>
+        <div class="timeline-head">Now — Week 2: Repository & Infrastructure Setup</div>
+        <div class="timeline-body">
+          Create TRACE-Enterprises GitHub org. Move CAI → ignition-os repo.
+          Create conduit-os repo. Set up cai-core shared package.
+          Purchase conduit-os.com. Configure subdomain routing on builtwithcai.com.
+        </div>
+      </div>
+      <div class="timeline-item">
+        <div class="timeline-dot"></div>
+        <div class="timeline-head">Week 3–4: Adapt Phase</div>
+        <div class="timeline-body">
+          Fork ignition-os into conduit-os. Rename all UI labels (vehicle → equipment, RO → ticket).
+          Re-skin color palette to Conduit green. Re-write AI prompts for HVAC context.
+          Deploy to conduit-os.builtwithcai.com. Estimated: 25–34 hours.
+        </div>
+      </div>
+      <div class="timeline-item">
+        <div class="timeline-dot"></div>
+        <div class="timeline-head">Week 5–8: New Tile Build</div>
+        <div class="timeline-body">
+          Build Equipment Registry, Refrigerant Tracker, Maintenance Agreement Manager,
+          Parts Van Inventory, Permit Tracker, Energy Efficiency Report.
+          Estimated: 41–56 hours. Internal testing with at least one HVAC contractor.
+        </div>
+      </div>
+      <div class="timeline-item">
+        <div class="timeline-dot"></div>
+        <div class="timeline-head">Week 9–10: Pilot Prep</div>
+        <div class="timeline-body">
+          Hardware kit prepared for HVAC (same RAM mount, same cable, new cheat sheet for HVAC voice commands).
+          Identify 5–10 target HVAC shops in the Liberty Hill / Georgetown / Round Rock corridor.
+          Same cold call approach as Ignition OS pilot.
+        </div>
+      </div>
+      <div class="timeline-item">
+        <div class="timeline-dot timeline-dot-gray"></div>
+        <div class="timeline-head-gray">Week 11+: Conduit OS Pilot Launch</div>
+        <div class="timeline-body" style="color:#94a3b8;">
+          First HVAC shops onboarded. 14-day trial running. Ignition OS and Conduit OS
+          running simultaneously on the same CAI infrastructure. TRACE Enterprises now
+          has two revenue streams on one platform.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <div class="footer">
+    <div>
+      <strong>TRACE Enterprises</strong> — Conduit OS Expansion Plan<br>
+      Confidential — Internal planning document — May 2, 2026
+    </div>
+    <div style="text-align:right;">
+      Built on CAI Platform — ignition-os.com · conduit-os.com · builtwithcai.com<br>
+      Supabase · Railway · Claude · Gemini · Whisper
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

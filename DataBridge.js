@@ -10,6 +10,16 @@ import { supabase } from './supabase';
 const isWeb = typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
 let memoryStore = {};
 
+// Mobile persistence via AsyncStorage — loaded dynamically so web builds are unaffected
+let AsyncStorage = null;
+if (!isWeb) {
+  try {
+    AsyncStorage = require('@react-native-async-storage/async-storage').default;
+  } catch (e) {
+    console.warn('[DataBridge] AsyncStorage unavailable — mobile data will not persist across restarts');
+  }
+}
+
 // Dynamically route API calls based on platform
 // Web apps use their current hostname (localhost). Mobile apps use your computer's local IP.
 const API_URL = isWeb ? `http://${window.location.hostname}:8000` : 'http://192.168.1.14:8000';
@@ -345,14 +355,20 @@ const DataBridge = {
       // 1. Save to universal memory store
       memoryStore[key] = payload;
 
-      // 2. Persist to Web LocalStorage if available
+      // 2. Persist to platform storage
       if (isWeb) {
         const existingData = JSON.parse(localStorage.getItem(DataBridge.storageKey)) || {};
         existingData[key] = payload;
         localStorage.setItem(DataBridge.storageKey, JSON.stringify(existingData));
-      } else {
-        // Mobile: React Native AsyncStorage hook point.
-        // For Phase 1, memoryStore preserves state across navigation safely.
+      } else if (AsyncStorage) {
+        // Fire-and-forget — memoryStore is the source of truth, AsyncStorage is the restart backup
+        AsyncStorage.getItem(DataBridge.storageKey)
+          .then(raw => {
+            const existingData = raw ? JSON.parse(raw) : {};
+            existingData[key] = payload;
+            return AsyncStorage.setItem(DataBridge.storageKey, JSON.stringify(existingData));
+          })
+          .catch(e => console.warn('[DataBridge] AsyncStorage write failed:', e));
       }
       
       // If we are saving active jobs, mirror it to the Python Cloud Database
@@ -378,19 +394,58 @@ const DataBridge = {
         return memoryStore[key];
       }
       
-      // 2. Fallback to Web LocalStorage
+      // 2. Fallback to platform storage (sync on web, async hydration on mobile)
       if (isWeb) {
         const store = JSON.parse(localStorage.getItem(DataBridge.storageKey));
         if (store && store[key] !== undefined) {
-          memoryStore[key] = store[key]; // Hydrate memory
+          memoryStore[key] = store[key];
           return store[key];
         }
       }
+      // Mobile: memoryStore should already be hydrated via DataBridge.hydrate() at app start.
+      // If we reach here on mobile, the key genuinely doesn't exist yet.
       return null;
     } catch (error) {
       console.error(`[DataBridge] LOAD ERROR for ${key}:`, error);
       return null;
     }
+  },
+
+  /**
+   * HYDRATE: Call once at mobile app startup to load AsyncStorage into memoryStore.
+   * On web this is a no-op — localStorage is read synchronously on demand.
+   */
+  hydrate: async () => {
+    if (isWeb || !AsyncStorage) return;
+    try {
+      const raw = await AsyncStorage.getItem(DataBridge.storageKey);
+      if (raw) {
+        const stored = JSON.parse(raw);
+        Object.assign(memoryStore, stored);
+        console.log('[DataBridge] Mobile hydration complete —', Object.keys(stored).length, 'keys loaded');
+      }
+    } catch (e) {
+      console.warn('[DataBridge] Hydration failed:', e);
+    }
+  },
+
+  /**
+   * TRACK: Fire-and-forget usage event to Supabase feature_events table.
+   * Lets TRACE monitor which modules/actions are used per shop without blocking the UI.
+   */
+  trackEvent: (module, action, metadata = {}) => {
+    const shopId = DataBridge.getShopId();
+    const user   = DataBridge.load('current_user') || {};
+    if (!shopId) return;
+    supabase.from('feature_events').insert({
+      shop_id:   shopId,
+      user_role: user.role || 'UNKNOWN',
+      module,
+      action,
+      metadata,
+    }).then(({ error }) => {
+      if (error) console.warn('[DataBridge] trackEvent failed:', error.message);
+    });
   },
 
   /**

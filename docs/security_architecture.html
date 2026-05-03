@@ -1,0 +1,860 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ignition OS — Security Architecture Review</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: #fff; color: #1a1a2e; font-size: 13px; }
+
+  .page { max-width: 900px; margin: 0 auto; padding: 40px 48px; }
+
+  /* Header */
+  .header { border-bottom: 3px solid #1e3a5f; padding-bottom: 20px; margin-bottom: 32px; }
+  .header h1 { font-size: 24px; font-weight: 900; color: #1e3a5f; letter-spacing: -0.5px; }
+  .header .sub { font-size: 11px; color: #666; margin-top: 6px; text-transform: uppercase; letter-spacing: 1px; }
+  .header .meta { margin-top: 12px; display: flex; gap: 32px; }
+  .header .meta span { font-size: 11px; color: #444; }
+  .header .meta strong { color: #1e3a5f; }
+
+  /* Section titles */
+  h2 { font-size: 14px; font-weight: 800; color: #1e3a5f; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 14px; padding-left: 10px; border-left: 4px solid #3b82f6; }
+  h3 { font-size: 12px; font-weight: 700; color: #333; margin-bottom: 8px; margin-top: 14px; }
+
+  section { margin-bottom: 36px; }
+
+  /* Status badges */
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+  .badge-green  { background: #dcfce7; color: #166534; }
+  .badge-yellow { background: #fef9c3; color: #854d0e; }
+  .badge-red    { background: #fee2e2; color: #991b1b; }
+  .badge-blue   { background: #dbeafe; color: #1e40af; }
+  .badge-gray   { background: #f1f5f9; color: #475569; }
+
+  /* Flow diagram */
+  .diagram { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 24px; margin-bottom: 16px; }
+  .flow { display: flex; align-items: center; flex-wrap: wrap; gap: 0; margin-bottom: 12px; }
+  .flow-label { font-size: 10px; color: #94a3b8; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+  .box { background: #1e3a5f; color: #fff; padding: 8px 14px; border-radius: 6px; font-size: 11px; font-weight: 700; text-align: center; min-width: 110px; }
+  .box-light { background: #dbeafe; color: #1e3a5f; padding: 8px 14px; border-radius: 6px; font-size: 11px; font-weight: 700; text-align: center; min-width: 110px; }
+  .box-green { background: #dcfce7; color: #166534; padding: 8px 14px; border-radius: 6px; font-size: 11px; font-weight: 700; text-align: center; min-width: 110px; }
+  .box-yellow { background: #fef9c3; color: #854d0e; padding: 8px 14px; border-radius: 6px; font-size: 11px; font-weight: 700; text-align: center; min-width: 110px; }
+  .box-red { background: #fee2e2; color: #991b1b; padding: 8px 14px; border-radius: 6px; font-size: 11px; font-weight: 700; text-align: center; min-width: 110px; border: 2px dashed #f87171; }
+  .arrow { color: #94a3b8; font-size: 18px; padding: 0 8px; font-weight: 300; }
+  .arrow-down { color: #94a3b8; font-size: 16px; text-align: center; display: block; margin: 4px 0; }
+
+  /* Two-column layout */
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 16px; }
+  .col-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; }
+  .col-card h3 { margin-top: 0; }
+
+  /* Table */
+  table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 12px; }
+  th { background: #1e3a5f; color: #fff; padding: 8px 12px; text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+  td { padding: 8px 12px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+  tr:nth-child(even) td { background: #f8fafc; }
+
+  /* Code block */
+  .code { background: #0f172a; color: #94a3b8; padding: 12px 16px; border-radius: 6px; font-family: 'Courier New', monospace; font-size: 11px; line-height: 1.6; margin-bottom: 10px; }
+  .code .kw  { color: #7dd3fc; }
+  .code .str { color: #86efac; }
+  .code .cmt { color: #475569; font-style: italic; }
+  .code .val { color: #fca5a5; }
+
+  /* Gap / risk panel */
+  .gap-panel { border: 1px solid #fca5a5; background: #fff5f5; border-radius: 8px; padding: 16px; margin-bottom: 12px; }
+  .gap-panel h3 { color: #991b1b; margin-top: 0; }
+  .gap-panel ul { padding-left: 18px; }
+  .gap-panel li { margin-bottom: 5px; color: #7f1d1d; font-size: 12px; }
+
+  .fix-panel { border: 1px solid #86efac; background: #f0fdf4; border-radius: 8px; padding: 16px; margin-bottom: 12px; }
+  .fix-panel h3 { color: #166534; margin-top: 0; }
+  .fix-panel ul { padding-left: 18px; }
+  .fix-panel li { margin-bottom: 5px; color: #14532d; font-size: 12px; }
+
+  /* UUID illustration */
+  .uuid-box { background: #0f172a; color: #7dd3fc; font-family: 'Courier New', monospace; font-size: 13px; padding: 14px 20px; border-radius: 8px; text-align: center; letter-spacing: 1px; margin: 10px 0; }
+  .uuid-box .label { font-size: 10px; color: #475569; text-transform: uppercase; letter-spacing: 2px; display: block; margin-bottom: 6px; }
+
+  /* Separator */
+  .divider { border: none; border-top: 1px solid #e2e8f0; margin: 28px 0; }
+
+  /* Footer */
+  .footer { border-top: 2px solid #e2e8f0; padding-top: 16px; margin-top: 40px; display: flex; justify-content: space-between; align-items: center; }
+  .footer .left { font-size: 10px; color: #94a3b8; }
+  .footer .right { font-size: 10px; color: #94a3b8; text-align: right; }
+
+  /* Print */
+  @media print {
+    body { font-size: 12px; }
+    .page { padding: 20px 32px; }
+    section { page-break-inside: avoid; }
+    .two-col { page-break-inside: avoid; }
+  }
+
+  /* Layer annotation */
+  .layer-row { display: flex; align-items: stretch; gap: 0; margin-bottom: 8px; }
+  .layer-label { writing-mode: vertical-rl; text-orientation: mixed; transform: rotate(180deg); font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: #94a3b8; padding: 4px 6px; min-width: 24px; text-align: center; background: #f1f5f9; border-radius: 4px 0 0 4px; }
+  .layer-content { flex: 1; display: flex; align-items: center; gap: 8px; background: #f8fafc; padding: 8px 12px; border-radius: 0 4px 4px 0; border: 1px solid #e2e8f0; border-left: none; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ── HEADER ── -->
+  <div class="header">
+    <h1>Ignition OS — Security Architecture</h1>
+    <div class="sub">Authentication, Identity & Access Control — Technical Review Document</div>
+    <div class="meta">
+      <span><strong>Prepared for:</strong> Internal Review</span>
+      <span><strong>Date:</strong> May 2, 2026</span>
+      <span><strong>Version:</strong> Pilot Phase 1.0</span>
+      <span><strong>Classification:</strong> Internal / Technical</span>
+    </div>
+  </div>
+
+  <!-- ── SECTION 1: OVERVIEW ── -->
+  <section>
+    <h2>1. System Overview</h2>
+    <p style="margin-bottom:14px; color:#444; line-height:1.6;">
+      Ignition OS is a multi-tenant SaaS platform running on two surfaces: a <strong>React/Vite web app</strong>
+      and a <strong>React Native (Expo) mobile app</strong>. Both share a common data layer (DataBridge.js)
+      connected to Supabase (PostgreSQL) as the cloud database and a Python FastAPI backend on Railway.
+      Every piece of data is scoped to a <strong>shop_id</strong> — a UUID that acts as the tenant boundary.
+    </p>
+
+    <div class="diagram">
+      <div class="flow-label">Platform Architecture</div>
+      <div style="display:flex; gap:16px; flex-wrap:wrap;">
+        <div style="flex:1; min-width:200px;">
+          <div style="text-align:center; margin-bottom:8px; font-size:10px; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:1px;">Web Surface</div>
+          <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
+            <div class="box-light">Browser (React/Vite)</div>
+            <span class="arrow-down">↓</span>
+            <div class="box-light">IgnitionCore.js<br><span style="font-size:9px; font-weight:400;">Session Guard + Router</span></div>
+            <span class="arrow-down">↓</span>
+            <div class="box-light">DataBridge.js<br><span style="font-size:9px; font-weight:400;">localStorage + Supabase</span></div>
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; padding:0 8px;">
+          <div style="text-align:center; color:#94a3b8; font-size:10px; font-weight:700;">SHARED<br>BACKEND</div>
+        </div>
+        <div style="flex:1; min-width:180px;">
+          <div style="text-align:center; margin-bottom:8px; font-size:10px; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:1px;">Mobile Surface</div>
+          <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
+            <div class="box" style="background:#1e40af;">iOS / Android (Expo)</div>
+            <span class="arrow-down">↓</span>
+            <div class="box" style="background:#1e40af;">IgnitionCore.native.js<br><span style="font-size:9px; font-weight:400;">TechKeypad + Router</span></div>
+            <span class="arrow-down">↓</span>
+            <div class="box" style="background:#1e40af;">DataBridge.js<br><span style="font-size:9px; font-weight:400;">memoryStore + Supabase</span></div>
+          </div>
+        </div>
+        <div style="display:flex; align-items:center;">
+          <div style="display:flex; flex-direction:column; gap:6px; align-items:center;">
+            <div class="box-green">Supabase<br><span style="font-size:9px; font-weight:400;">PostgreSQL + RLS</span></div>
+            <div class="box-green">FastAPI (Railway)<br><span style="font-size:9px; font-weight:400;">Python Backend</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <hr class="divider">
+
+  <!-- ── SECTION 2: UNIQUE IDENTIFIER ── -->
+  <section>
+    <h2>2. The Tenant Identifier — shop_id</h2>
+    <p style="margin-bottom:14px; color:#444; line-height:1.6;">
+      Every shop that registers with Ignition OS receives a cryptographically unique UUID (Universally Unique Identifier)
+      generated by PostgreSQL. This UUID is the <strong>primary isolation boundary</strong> — no shop can ever see
+      another shop's data because every single database query filters by this value.
+    </p>
+
+    <div class="uuid-box">
+      <span class="label">Example shop_id (UUID v4)</span>
+      f47ac10b-58cc-4372-a567-0e02b2c3d479
+    </div>
+
+    <div class="two-col" style="margin-top:14px;">
+      <div class="col-card">
+        <h3>How it's generated</h3>
+        <div class="code"><span class="cmt">-- Supabase schema</span><br>
+<span class="kw">create table</span> shops (<br>
+&nbsp;&nbsp;id uuid <span class="kw">primary key</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="kw">default</span> <span class="val">gen_random_uuid()</span>,<br>
+&nbsp;&nbsp;name text,<br>
+&nbsp;&nbsp;tier text<br>
+);</div>
+        <p style="font-size:11px; color:#555; line-height:1.5;">PostgreSQL generates a 128-bit random ID on first registration. Statistically impossible to guess or collide.</p>
+      </div>
+      <div class="col-card">
+        <h3>How it's stored on-device</h3>
+        <div class="code"><span class="cmt">// DataBridge.js</span><br>
+<span class="kw">setShopId</span>: (id) => {<br>
+&nbsp;&nbsp;memoryStore._shopId = id;<br>
+&nbsp;&nbsp;<span class="kw">if</span> (isWeb)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;localStorage.<span class="val">setItem</span>(<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="str">'IGNITION_SHOP_ID'</span>, id<br>
+&nbsp;&nbsp;&nbsp;&nbsp;);<br>
+}</div>
+        <p style="font-size:11px; color:#555; line-height:1.5;">Stored in browser localStorage on web. On mobile, held in memory during session.</p>
+      </div>
+    </div>
+
+    <h3 style="margin-top:16px;">How shop_id isolates data — every query</h3>
+    <div class="diagram">
+      <div class="layer-row">
+        <div class="layer-label">Jobs</div>
+        <div class="layer-content">
+          <div class="code" style="margin:0; flex:1; font-size:10px;">supabase.from(<span class="str">'jobs'</span>).select(<span class="str">'*'</span>).<span class="val">eq</span>(<span class="str">'shop_id'</span>, DataBridge.getShopId())</div>
+          <span class="badge badge-green">Isolated</span>
+        </div>
+      </div>
+      <div class="layer-row" style="margin-top:6px;">
+        <div class="layer-label">Users</div>
+        <div class="layer-content">
+          <div class="code" style="margin:0; flex:1; font-size:10px;">supabase.from(<span class="str">'users'</span>).select(<span class="str">'*'</span>).<span class="val">eq</span>(<span class="str">'shop_id'</span>, DataBridge.getShopId())</div>
+          <span class="badge badge-green">Isolated</span>
+        </div>
+      </div>
+      <div class="layer-row" style="margin-top:6px;">
+        <div class="layer-label">Tools</div>
+        <div class="layer-content">
+          <div class="code" style="margin:0; flex:1; font-size:10px;">supabase.from(<span class="str">'tools'</span>).select(<span class="str">'*'</span>).<span class="val">eq</span>(<span class="str">'shop_id'</span>, DataBridge.getShopId())</div>
+          <span class="badge badge-green">Isolated</span>
+        </div>
+      </div>
+      <div class="layer-row" style="margin-top:6px;">
+        <div class="layer-label">AI Log</div>
+        <div class="layer-content">
+          <div class="code" style="margin:0; flex:1; font-size:10px;">supabase.from(<span class="str">'ai_usage'</span>).select(<span class="str">'*'</span>).<span class="val">eq</span>(<span class="str">'shop_id'</span>, DataBridge.getShopId())</div>
+          <span class="badge badge-green">Isolated</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <hr class="divider">
+
+  <!-- ── SECTION 3: WEB AUTHENTICATION ── -->
+  <section>
+    <h2>3. Web Authentication Flow</h2>
+
+    <div class="diagram">
+      <div class="flow-label">Web Login Sequence — IgnitionCore.js</div>
+      <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
+        <div class="box-light" style="width:280px;">User opens ignition-os.com</div>
+        <span class="arrow-down">↓</span>
+        <div class="box-light" style="width:280px;">IgnitionCore checks:<br><span style="font-size:9px;">DataBridge.load('shop_policy')</span></div>
+        <span class="arrow-down">↓ No policy?</span>
+        <div class="box-light" style="width:280px;">OnboardingWizard<br><span style="font-size:9px;">First-time shop setup</span></div>
+
+        <div style="display:flex; gap:40px; margin-top:8px; align-items:flex-start;">
+          <div style="display:flex; flex-direction:column; align-items:center; gap:4px;">
+            <div style="font-size:10px; color:#64748b; font-weight:700;">Policy exists, no user</div>
+            <div class="box-yellow" style="width:180px;">IdentityRequiredSplash<br><span style="font-size:9px;">"System Locked" screen</span></div>
+            <span class="arrow-down">↓</span>
+            <div class="box-yellow" style="width:180px;">User enters 4-digit PIN</div>
+            <span class="arrow-down">↓</span>
+            <div class="box-yellow" style="width:180px;">DataBridge.authenticate(pin)<br><span style="font-size:9px;">Lookup PIN → user profile</span></div>
+            <span class="arrow-down">↓ Match?</span>
+            <div class="box-green" style="width:180px;">Save to current_user<br>Reload page</div>
+          </div>
+          <div style="display:flex; flex-direction:column; align-items:center; gap:4px;">
+            <div style="font-size:10px; color:#64748b; font-weight:700;">User loaded — route by role</div>
+            <div class="box-green" style="width:180px;">ADMIN → OmniDashboard<br><span style="font-size:9px;">Full access</span></div>
+            <div class="box-green" style="width:180px; margin-top:4px;">TECH → Kiosk View<br><span style="font-size:9px;">Job/tools only</span></div>
+            <div class="box-green" style="width:180px; margin-top:4px;">CUSTOMER → Port View<br><span style="font-size:9px;">Approval portal only</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <h3>Session Guard — Auto-Lock</h3>
+    <p style="margin-bottom:10px; color:#444; line-height:1.6; font-size:12px;">
+      The <code style="background:#f1f5f9; padding:1px 4px; border-radius:3px;">useSessionGuard</code> hook in IgnitionCore runs a 5-minute inactivity timer.
+      Any mouse move, touch, or click resets the clock. On timeout, <code style="background:#f1f5f9; padding:1px 4px; border-radius:3px;">current_user</code> is
+      cleared and the page force-reloads, returning to the locked state.
+    </p>
+    <div class="code"><span class="cmt">// IgnitionCore.js — useSessionGuard hook</span><br>
+<span class="kw">setTimeout</span>(() => {<br>
+&nbsp;&nbsp;DataBridge.save(<span class="str">'current_user'</span>, <span class="val">null</span>);<br>
+&nbsp;&nbsp;window.location.<span class="val">reload</span>(); <span class="cmt">// Force clean slate</span><br>
+}, <span class="val">300000</span>); <span class="cmt">// 5 minutes</span></div>
+  </section>
+
+  <hr class="divider">
+
+  <!-- ── SECTION 4: MOBILE AUTHENTICATION ── -->
+  <section>
+    <h2>4. Mobile Authentication Flow</h2>
+
+    <div class="two-col">
+      <div>
+        <div class="diagram">
+          <div class="flow-label">TechKeypad — React Native</div>
+          <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
+            <div class="box" style="background:#1e40af; width:200px;">App launches (Expo)</div>
+            <span class="arrow-down">↓</span>
+            <div class="box" style="background:#1e40af; width:200px;">TechKeypad renders<br><span style="font-size:9px;">4-dot progress indicator</span></div>
+            <span class="arrow-down">↓</span>
+            <div class="box" style="background:#1e40af; width:200px;">Tech enters 4 digits<br><span style="font-size:9px;">Haptic feedback each press</span></div>
+            <span class="arrow-down">↓ Auto-submits on 4th digit</span>
+            <div class="box" style="background:#1e40af; width:200px;">onUnlock(pin) callback<br><span style="font-size:9px;">Passes PIN to parent</span></div>
+            <span class="arrow-down">↓</span>
+            <div class="box-green" style="width:200px;">DataBridge.authenticate()<br><span style="font-size:9px;">Same logic as web</span></div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <h3>Mobile-specific behaviors</h3>
+        <table>
+          <tr><th>Feature</th><th>Status</th></tr>
+          <tr><td>PIN auto-submit on 4th digit</td><td><span class="badge badge-green">Active</span></td></tr>
+          <tr><td>Haptic feedback</td><td><span class="badge badge-green">Active</span></td></tr>
+          <tr><td>PIN cleared on failed attempt</td><td><span class="badge badge-green">Active</span></td></tr>
+          <tr><td>AsyncStorage persistence</td><td><span class="badge badge-yellow">Pilot: memoryStore</span></td></tr>
+          <tr><td>Biometric (Face ID / Touch)</td><td><span class="badge badge-gray">Future</span></td></tr>
+          <tr><td>App-level session timeout</td><td><span class="badge badge-yellow">Planned</span></td></tr>
+        </table>
+
+        <h3 style="margin-top:16px;">Shared auth logic</h3>
+        <p style="font-size:12px; color:#444; line-height:1.5;">
+          Both platforms call <strong>DataBridge.authenticate(pin)</strong> —
+          the same function. Web stores the session in localStorage.
+          Mobile stores it in memoryStore (RAM), which clears when the app is closed.
+          This means mobile is naturally session-scoped.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <hr class="divider">
+
+  <!-- ── SECTION 5: DATABASE SECURITY ── -->
+  <section>
+    <h2>5. Database Security — Supabase RLS</h2>
+
+    <p style="margin-bottom:14px; color:#444; line-height:1.6;">
+      Supabase Row Level Security (RLS) is <strong>enabled</strong> on all 7 core tables.
+      RLS means the database itself enforces isolation — even if someone had a valid API key,
+      they cannot read data outside their permitted scope.
+    </p>
+
+    <table>
+      <tr>
+        <th>Table</th>
+        <th>RLS Enabled</th>
+        <th>Pilot Policy</th>
+        <th>Production Target</th>
+      </tr>
+      <tr>
+        <td>shops</td>
+        <td><span class="badge badge-green">Yes</span></td>
+        <td><code>using (true)</code> — open</td>
+        <td><code>using (id = auth.uid())</code></td>
+      </tr>
+      <tr>
+        <td>users</td>
+        <td><span class="badge badge-green">Yes</span></td>
+        <td><code>using (true)</code> — open</td>
+        <td><code>using (shop_id = auth.uid())</code></td>
+      </tr>
+      <tr>
+        <td>jobs</td>
+        <td><span class="badge badge-green">Yes</span></td>
+        <td><code>using (true)</code> — open</td>
+        <td><code>using (shop_id = auth.uid())</code></td>
+      </tr>
+      <tr>
+        <td>purchase_orders</td>
+        <td><span class="badge badge-green">Yes</span></td>
+        <td><code>using (true)</code> — open</td>
+        <td><code>using (shop_id = auth.uid())</code></td>
+      </tr>
+      <tr>
+        <td>tools</td>
+        <td><span class="badge badge-green">Yes</span></td>
+        <td><code>using (true)</code> — open</td>
+        <td><code>using (shop_id = auth.uid())</code></td>
+      </tr>
+      <tr>
+        <td>pmi_schedules</td>
+        <td><span class="badge badge-green">Yes</span></td>
+        <td><code>using (true)</code> — open</td>
+        <td><code>using (shop_id = auth.uid())</code></td>
+      </tr>
+      <tr>
+        <td>ai_usage</td>
+        <td><span class="badge badge-green">Yes</span></td>
+        <td><code>using (true)</code> — open</td>
+        <td><code>using (shop_id = auth.uid())</code></td>
+      </tr>
+    </table>
+
+    <div class="two-col">
+      <div class="col-card">
+        <h3>Anon Key (Frontend)</h3>
+        <p style="font-size:11px; color:#555; line-height:1.5;">
+          The browser and mobile app use the Supabase <strong>anon key</strong>.
+          This key has limited permissions — it can only perform operations
+          that RLS policies explicitly allow. It cannot access the service role
+          or admin functions.
+        </p>
+        <div style="margin-top:8px;"><span class="badge badge-blue">Scope: RLS-controlled</span></div>
+      </div>
+      <div class="col-card">
+        <h3>Service Key (Backend)</h3>
+        <p style="font-size:11px; color:#555; line-height:1.5;">
+          The Python FastAPI backend on Railway uses the <strong>service role key</strong>.
+          This bypasses RLS entirely — full database access.
+          This key lives only in Railway environment variables,
+          never in client code.
+        </p>
+        <div style="margin-top:8px;"><span class="badge badge-yellow">Scope: Full access — backend only</span></div>
+      </div>
+    </div>
+  </section>
+
+  <hr class="divider">
+
+  <!-- ── SECTION 6: ROLE-BASED ACCESS ── -->
+  <section>
+    <h2>6. Role-Based Access Control (RBAC)</h2>
+
+    <table>
+      <tr>
+        <th>Role</th>
+        <th>Default PIN (Pilot)</th>
+        <th>Permissions</th>
+        <th>View Routed To</th>
+      </tr>
+      <tr>
+        <td><strong>ADMIN</strong></td>
+        <td><code>1111</code></td>
+        <td>ADMIN, TECH, PRICING_AUTHORITY</td>
+        <td>OmniDashboard — full access</td>
+      </tr>
+      <tr>
+        <td><strong>SERVICE</strong></td>
+        <td><code>2222</code></td>
+        <td>TECH (intake, queue, estimates, parts)</td>
+        <td>Service Writer dashboard</td>
+      </tr>
+      <tr>
+        <td><strong>TECHNICIAN</strong></td>
+        <td><code>1234</code></td>
+        <td>TECH (queue, parts, tools only)</td>
+        <td>Kiosk — restricted view</td>
+      </tr>
+      <tr>
+        <td><strong>CUSTOMER</strong></td>
+        <td>N/A</td>
+        <td>CUSTOMER — approval only</td>
+        <td>IgnitionPort — approval portal</td>
+      </tr>
+      <tr>
+        <td><strong>DEVELOPER</strong></td>
+        <td><code>3333</code></td>
+        <td>ADMIN + TECH + PRICING_AUTHORITY</td>
+        <td>Full access — dev use only</td>
+      </tr>
+    </table>
+
+    <div style="background:#fef9c3; border:1px solid #fde68a; border-radius:6px; padding:12px; margin-top:4px;">
+      <strong style="font-size:11px; color:#92400e;">⚠ Pilot note:</strong>
+      <span style="font-size:11px; color:#78350f;"> Default seed PINs (1111, 1234, 2222, 3333) exist only until onboarding creates real accounts.
+      The onboarding wizard overwrites these with shop-specific PINs set by the owner.</span>
+    </div>
+  </section>
+
+  <hr class="divider">
+
+  <!-- ── SECTION 7: GAPS & REMEDIATION ── -->
+  <section>
+    <h2>7. Pilot-Phase Gaps & Production Remediation</h2>
+    <p style="margin-bottom:14px; color:#444; font-size:12px; line-height:1.6;">
+      The following gaps exist by deliberate design for the pilot phase — they are documented in the codebase comments
+      and are all known, scoped items for pre-launch remediation.
+    </p>
+
+    <div class="gap-panel">
+      <h3>GAP 1 — PIN stored as plaintext lookup key</h3>
+      <ul>
+        <li>Current: PINs are used directly as dictionary keys in <code>getProfiles()</code> — the PIN is both the identifier and the credential</li>
+        <li>Risk: If localStorage is read (e.g. via XSS), PINs are visible in plaintext</li>
+        <li>Scope: Medium — PINs are 4-digit numeric, already low entropy, but storing them plaintext is poor practice</li>
+      </ul>
+    </div>
+
+    <div class="fix-panel">
+      <h3>FIX 1 — Hash PINs with bcrypt, use user UUID as key</h3>
+      <ul>
+        <li>Store users by UUID, add <code>pin_hash</code> column (already in the Supabase schema)</li>
+        <li>On login: hash the entered PIN with bcrypt, compare to stored hash</li>
+        <li>The schema already has <code>pin_hash text not null</code> on the users table — just needs to be wired up</li>
+      </ul>
+    </div>
+
+    <div class="gap-panel">
+      <h3>GAP 2 — RLS policies are open during pilot</h3>
+      <ul>
+        <li>Current: All tables use <code>using (true)</code> — any valid Supabase anon key can read any shop's data</li>
+        <li>Risk: High in multi-tenant production — a compromised anon key could expose all shops</li>
+        <li>Scope: Intentional for pilot (1–3 shops, controlled). Noted in <code>supabase_rls_pilot.sql</code> with the fix already documented</li>
+      </ul>
+    </div>
+
+    <div class="fix-panel">
+      <h3>FIX 2 — Wire Supabase Auth, switch RLS to shop_id = auth.uid()</h3>
+      <ul>
+        <li>Implement Supabase Auth — each shop owner gets a Supabase auth account</li>
+        <li>Replace all 7 <code>pilot_all</code> policies with <code>using (shop_id = auth.uid())</code></li>
+        <li>This is a ~2-hour migration, already outlined in the schema file comments</li>
+      </ul>
+    </div>
+
+    <div class="gap-panel">
+      <h3>GAP 3 — Mobile session not persisted to AsyncStorage</h3>
+      <ul>
+        <li>Current: Mobile uses in-memory store only — session clears on app close (actually a security feature, but not intentional)</li>
+        <li>Risk: Low (clears on close is safer than persisting), but UX issue — techs re-enter PIN every app restart</li>
+      </ul>
+    </div>
+
+    <div class="fix-panel">
+      <h3>FIX 3 — Implement expo-secure-store for mobile session</h3>
+      <ul>
+        <li>Use <code>expo-secure-store</code> (hardware-backed keychain) to persist session token, not the PIN</li>
+        <li>Session token expires independently; PIN is only used to generate it</li>
+      </ul>
+    </div>
+  </section>
+
+  <hr class="divider">
+
+  <!-- ── SECTION 8: TRANSPORT SECURITY ── -->
+  <section>
+    <h2>8. Transport Security</h2>
+
+    <table>
+      <tr>
+        <th>Connection</th>
+        <th>Protocol</th>
+        <th>Status</th>
+        <th>Notes</th>
+      </tr>
+      <tr>
+        <td>Frontend → Supabase</td>
+        <td>HTTPS / WSS</td>
+        <td><span class="badge badge-green">Encrypted</span></td>
+        <td>Supabase enforces TLS on all endpoints</td>
+      </tr>
+      <tr>
+        <td>Frontend → FastAPI (dev)</td>
+        <td>HTTP (localhost)</td>
+        <td><span class="badge badge-yellow">Local only</span></td>
+        <td>Production deployment switches to HTTPS via Railway</td>
+      </tr>
+      <tr>
+        <td>Mobile → Supabase</td>
+        <td>HTTPS</td>
+        <td><span class="badge badge-green">Encrypted</span></td>
+        <td>Same Supabase client library, same TLS</td>
+      </tr>
+      <tr>
+        <td>Backend → Supabase</td>
+        <td>HTTPS</td>
+        <td><span class="badge badge-green">Encrypted</span></td>
+        <td>Railway → Supabase over TLS, service key in env vars</td>
+      </tr>
+      <tr>
+        <td>API Keys</td>
+        <td>Env variables</td>
+        <td><span class="badge badge-green">Secured</span></td>
+        <td>VITE_ / EXPO_PUBLIC_ prefixed, never committed to git</td>
+      </tr>
+    </table>
+  </section>
+
+  <hr class="divider">
+
+  <!-- ── SECTION 9: SUMMARY ── -->
+  <section>
+    <h2>9. Security Summary — Pilot vs. Production</h2>
+
+    <table>
+      <tr>
+        <th>Control</th>
+        <th>Pilot Phase</th>
+        <th>Production Target</th>
+      </tr>
+      <tr>
+        <td>Tenant isolation</td>
+        <td><span class="badge badge-green">shop_id on all queries</span></td>
+        <td><span class="badge badge-green">+ RLS enforcement at DB layer</span></td>
+      </tr>
+      <tr>
+        <td>User authentication</td>
+        <td><span class="badge badge-yellow">4-digit PIN, plaintext lookup</span></td>
+        <td><span class="badge badge-blue">PIN → bcrypt hash → Supabase Auth JWT</span></td>
+      </tr>
+      <tr>
+        <td>Session management (web)</td>
+        <td><span class="badge badge-green">5-min auto-lock, localStorage</span></td>
+        <td><span class="badge badge-green">+ JWT expiry, httpOnly cookie</span></td>
+      </tr>
+      <tr>
+        <td>Session management (mobile)</td>
+        <td><span class="badge badge-yellow">Memory only — clears on close</span></td>
+        <td><span class="badge badge-blue">expo-secure-store (hardware keychain)</span></td>
+      </tr>
+      <tr>
+        <td>Role-based routing</td>
+        <td><span class="badge badge-green">ADMIN / TECH / CUSTOMER enforced</span></td>
+        <td><span class="badge badge-green">Same, backed by DB-level claims</span></td>
+      </tr>
+      <tr>
+        <td>Database RLS</td>
+        <td><span class="badge badge-red">Open policies — pilot only</span></td>
+        <td><span class="badge badge-blue">shop_id = auth.uid() on all tables</span></td>
+      </tr>
+      <tr>
+        <td>Transport encryption</td>
+        <td><span class="badge badge-green">TLS on all cloud connections</span></td>
+        <td><span class="badge badge-green">Same + HSTS on production domain</span></td>
+      </tr>
+      <tr>
+        <td>API key management</td>
+        <td><span class="badge badge-green">Env variables, not in code</span></td>
+        <td><span class="badge badge-green">Same + key rotation policy</span></td>
+      </tr>
+    </table>
+  </section>
+
+  <hr class="divider">
+
+  <!-- ── SECTION 10: PLAIN ENGLISH — CAC ANALOGY ── -->
+  <section>
+    <h2>10. Plain English — How Modern App Security Works</h2>
+    <p style="margin-bottom:14px; color:#444; line-height:1.6; font-size:12px;">
+      This section explains the concepts in this document without technical jargon,
+      using the U.S. military CAC (Common Access Card) system as the reference model —
+      the same security principles, different technology.
+    </p>
+
+    <!-- CAC Comparison Table -->
+    <h3>The CAC Card Parallel</h3>
+    <table style="margin-bottom:20px;">
+      <tr>
+        <th>Military CAC System</th>
+        <th>Modern Mobile App</th>
+        <th>Ignition OS Equivalent</th>
+      </tr>
+      <tr>
+        <td>The physical card</td>
+        <td>The phone itself (device identity)</td>
+        <td>The technician's phone or tablet</td>
+      </tr>
+      <tr>
+        <td>Your PIN to activate the card</td>
+        <td>Face ID / fingerprint / app PIN</td>
+        <td>4-digit technician PIN</td>
+      </tr>
+      <tr>
+        <td>The certificate chip on the card</td>
+        <td>Cryptographic token in the phone's secure chip</td>
+        <td>JWT session token (production target)</td>
+      </tr>
+      <tr>
+        <td>The door card reader</td>
+        <td>The app's auth check on every request</td>
+        <td>DataBridge.authenticate() + Supabase RLS</td>
+      </tr>
+      <tr>
+        <td>Your clearance level</td>
+        <td>Your role / permissions in the app</td>
+        <td>ADMIN / TECH / SERVICE / CUSTOMER</td>
+      </tr>
+      <tr>
+        <td>Your facility clearance</td>
+        <td>Which tenant account you belong to</td>
+        <td>The shop_id UUID — the tenant boundary</td>
+      </tr>
+      <tr>
+        <td>The PKI infrastructure behind CAC</td>
+        <td>OAuth 2.0 / Supabase Auth</td>
+        <td>Supabase Auth (production target)</td>
+      </tr>
+    </table>
+
+    <div style="background:#dbeafe; border:1px solid #93c5fd; border-radius:8px; padding:14px; margin-bottom:20px;">
+      <strong style="font-size:12px; color:#1e3a5f;">The CAC model requires two factors:</strong>
+      <span style="font-size:12px; color:#1e40af;"> something you <strong>have</strong> (the card) + something you <strong>know</strong> (the PIN).
+      Every modern banking and enterprise app is built on this exact same principle.</span>
+    </div>
+
+    <!-- 3 Factors -->
+    <h3>The Three Authentication Factors — Then and Now</h3>
+    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; margin-bottom:20px;">
+      <div class="col-card" style="text-align:center;">
+        <div style="font-size:28px; margin-bottom:8px;">🧠</div>
+        <div style="font-weight:800; color:#1e3a5f; font-size:12px; text-transform:uppercase; letter-spacing:0.5px;">Something You Know</div>
+        <div style="font-size:11px; color:#666; margin-top:6px; line-height:1.5;">CAC PIN<br>App password<br>4-digit PIN<br>Security question</div>
+      </div>
+      <div class="col-card" style="text-align:center;">
+        <div style="font-size:28px; margin-bottom:8px;">📱</div>
+        <div style="font-weight:800; color:#1e3a5f; font-size:12px; text-transform:uppercase; letter-spacing:0.5px;">Something You Have</div>
+        <div style="font-size:11px; color:#666; margin-top:6px; line-height:1.5;">The CAC card<br>Your phone<br>Hardware token<br>SMS code</div>
+      </div>
+      <div class="col-card" style="text-align:center;">
+        <div style="font-size:28px; margin-bottom:8px;">👁️</div>
+        <div style="font-weight:800; color:#1e3a5f; font-size:12px; text-transform:uppercase; letter-spacing:0.5px;">Something You Are</div>
+        <div style="font-size:11px; color:#666; margin-top:6px; line-height:1.5;">Photo on the CAC<br>Face ID<br>Fingerprint<br>Retina scan</div>
+      </div>
+    </div>
+    <p style="font-size:12px; color:#444; line-height:1.6; margin-bottom:20px;">
+      Military CAC required <strong>2 of 3</strong>. Modern banking apps now use all 3 for high-value transactions.
+      Ignition OS Pilot uses Factor 1 only (PIN). The production target adds Factor 2 (device registration) — giving technicians the equivalent of a CAC-level two-factor system on their phone.
+    </p>
+
+    <!-- How the same app gives different security -->
+    <h3>How the Same App Gives Each Person Their Own Security</h3>
+    <p style="font-size:12px; color:#444; line-height:1.6; margin-bottom:10px;">
+      When your children all use the same app (Netflix, a bank, a game) but each have their own security,
+      one of three models is in use:
+    </p>
+    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; margin-bottom:20px;">
+      <div class="col-card">
+        <div style="font-weight:800; color:#1e3a5f; font-size:11px; text-transform:uppercase; margin-bottom:6px;">Model A — Own Account</div>
+        <div style="font-size:11px; color:#555; line-height:1.5;">Each person has their own email + password. The app doesn't care whose phone it's on — only whose <em>account</em> is signed in. <strong>Netflix, Gmail, Spotify.</strong></div>
+      </div>
+      <div class="col-card">
+        <div style="font-weight:800; color:#1e3a5f; font-size:11px; text-transform:uppercase; margin-bottom:6px;">Model B — Device-Bound</div>
+        <div style="font-size:11px; color:#555; line-height:1.5;">One account, but the phone itself is registered. Face ID on your phone unlocks your session. Installing the app on a new phone starts from zero. <strong>Banking apps, brokerage apps.</strong></div>
+      </div>
+      <div class="col-card">
+        <div style="font-weight:800; color:#1e3a5f; font-size:11px; text-transform:uppercase; margin-bottom:6px;">Model C — Parent / Child Accounts</div>
+        <div style="font-size:11px; color:#555; line-height:1.5;">A master account holds all permissions. Child accounts have restricted access underneath it. <strong>Apple Screen Time, Google Family Link.</strong> Closest to CAC clearance levels.</div>
+      </div>
+    </div>
+    <p style="font-size:12px; color:#444; line-height:1.6; margin-bottom:20px;">
+      <strong>Ignition OS uses Model C logic:</strong> The shop owner (ADMIN) is the master account.
+      Technicians and service writers are child accounts with scoped permissions.
+      Each person's PIN unlocks only their assigned role and view — the same app, completely different experience.
+    </p>
+
+    <!-- Token / Visitor Badge -->
+    <h3>How the Session Token Works — The Visitor Badge Analogy</h3>
+    <p style="font-size:12px; color:#444; line-height:1.6; margin-bottom:10px;">
+      After you swipe your CAC and enter your PIN, the door doesn't make you repeat that every 10 seconds.
+      It records that you've been verified and lets you move freely until your access window closes.
+      Apps work the same way using a <strong>JWT token</strong> (JSON Web Token):
+    </p>
+    <div class="diagram" style="margin-bottom:16px;">
+      <div style="display:flex; flex-direction:column; align-items:center; gap:8px;">
+        <div class="box-light" style="width:320px; text-align:left; padding:10px 16px;">
+          <strong>Step 1:</strong> User enters PIN or Face ID
+        </div>
+        <span class="arrow-down">↓</span>
+        <div class="box-light" style="width:320px; text-align:left; padding:10px 16px;">
+          <strong>Step 2:</strong> Server verifies credentials<br>
+          <span style="font-size:10px; color:#64748b;">Like the card reader confirming your CAC certificate is valid and not expired</span>
+        </div>
+        <span class="arrow-down">↓</span>
+        <div class="box-green" style="width:320px; text-align:left; padding:10px 16px;">
+          <strong>Step 3:</strong> Server issues a JWT token<br>
+          <span style="font-size:10px; color:#166534;">A cryptographically signed digital badge — like a day pass after showing your CAC</span>
+        </div>
+        <span class="arrow-down">↓</span>
+        <div class="box-green" style="width:320px; text-align:left; padding:10px 16px;">
+          <strong>Step 4:</strong> Every request sends this token<br>
+          <span style="font-size:10px; color:#166534;">Server checks: valid? not expired? right user? right shop?</span>
+        </div>
+        <span class="arrow-down">↓</span>
+        <div class="box-yellow" style="width:320px; text-align:left; padding:10px 16px;">
+          <strong>Step 5:</strong> Token expires (hours or days)<br>
+          <span style="font-size:10px; color:#92400e;">User logs in again → fresh token issued. Like a new day pass each morning.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Face ID explanation -->
+    <h3>How Face ID / Touch ID Actually Works — Most People Get This Wrong</h3>
+    <div class="two-col" style="margin-bottom:16px;">
+      <div class="col-card">
+        <div style="font-weight:800; color:#991b1b; font-size:11px; margin-bottom:8px;">Common misconception</div>
+        <p style="font-size:11px; color:#555; line-height:1.5;">
+          "Apple stores my face and checks it on their servers every time I unlock my phone."
+        </p>
+        <div style="margin-top:8px;"><span class="badge badge-red">Incorrect</span></div>
+      </div>
+      <div class="col-card">
+        <div style="font-weight:800; color:#166534; font-size:11px; margin-bottom:8px;">What actually happens</div>
+        <p style="font-size:11px; color:#555; line-height:1.5;">
+          Your face is converted to a mathematical model, stored only in the phone's <strong>Secure Enclave</strong>
+          — a physically separate chip that even Apple cannot read. The comparison happens locally, on-device,
+          every time. Apple's servers are never involved.
+        </p>
+        <div style="margin-top:8px;"><span class="badge badge-green">Correct</span></div>
+      </div>
+    </div>
+    <div style="background:#f0fdf4; border:1px solid #86efac; border-radius:8px; padding:14px; margin-bottom:16px;">
+      <strong style="font-size:12px; color:#166534;">The CAC parallel:</strong>
+      <span style="font-size:12px; color:#14532d;">
+        Your PIN doesn't go to the Pentagon — it only activates the certificate that's already on the chip in your hand.
+        Face ID works exactly the same way. The biometric is the local PIN. The Secure Enclave is the smart chip.
+        The stored token it releases is the certificate.
+      </span>
+    </div>
+
+    <!-- Ignition OS Today vs Production -->
+    <h3>Ignition OS — Pilot Model vs. Production Model</h3>
+    <div class="two-col">
+      <div class="col-card">
+        <div style="font-weight:800; color:#92400e; font-size:11px; text-transform:uppercase; margin-bottom:10px; letter-spacing:0.5px;">Today — Pilot (Combination Lock)</div>
+        <div style="display:flex; flex-direction:column; gap:6px; align-items:center;">
+          <div class="box-yellow" style="width:100%; text-align:center;">Tech enters 4-digit PIN</div>
+          <span class="arrow-down">↓</span>
+          <div class="box-yellow" style="width:100%; text-align:center;">App checks local profile list</div>
+          <span class="arrow-down">↓</span>
+          <div class="box-yellow" style="width:100%; text-align:center;">Match → role loaded → view shown</div>
+        </div>
+        <p style="font-size:11px; color:#78350f; margin-top:10px; line-height:1.5;">
+          Equivalent to: PIN only. Like a combination lock on a filing cabinet. Works for a controlled pilot with known technicians.
+        </p>
+      </div>
+      <div class="col-card">
+        <div style="font-weight:800; color:#166534; font-size:11px; text-transform:uppercase; margin-bottom:10px; letter-spacing:0.5px;">Production Target (CAC Model)</div>
+        <div style="display:flex; flex-direction:column; gap:6px; align-items:center;">
+          <div class="box-green" style="width:100%; text-align:center;">Tech enters PIN on registered phone</div>
+          <span class="arrow-down">↓</span>
+          <div class="box-green" style="width:100%; text-align:center;">Phone's Secure Enclave releases token</div>
+          <span class="arrow-down">↓</span>
+          <div class="box-green" style="width:100%; text-align:center;">Supabase verifies token + shop_id + role</div>
+          <span class="arrow-down">↓</span>
+          <div class="box-green" style="width:100%; text-align:center;">Access granted — scoped to their shop only</div>
+        </div>
+        <p style="font-size:11px; color:#14532d; margin-top:10px; line-height:1.5;">
+          Equivalent to: PIN + registered device. True two-factor. A stolen PIN alone is useless without the registered phone — exactly like a stolen CAC PIN is useless without the physical card.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── FOOTER ── -->
+  <div class="footer">
+    <div class="left">
+      <strong>Ignition OS</strong> — TRACE Enterprises, Liberty Hill TX<br>
+      Document generated: May 2, 2026 — For internal review only
+    </div>
+    <div class="right">
+      Architecture based on actual source code review<br>
+      DataBridge.js · IgnitionCore.js · supabase_schema.sql · TechKeypad.jsx
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

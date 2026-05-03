@@ -252,6 +252,11 @@ const IgnitionAudit = () => {
   const shopInfo = DataBridge.load('shop_info') || {};
   const tier    = shopInfo.tier || 'TRIAL';
 
+  // Track module open once per mount
+  React.useEffect(() => {
+    DataBridge.trackEvent('AUDIT', 'module_opened', { tier });
+  }, []);
+
   const fileRef = useRef(null);
   const [preview,   setPreview]   = useState(null);
   const [b64,       setB64]       = useState(null);
@@ -311,6 +316,12 @@ const IgnitionAudit = () => {
       if (!res.ok) throw new Error(res.error || 'Audit returned no result');
       setResult(res);
       setStage('RESULT');
+      DataBridge.trackEvent('AUDIT', 'scan_completed', {
+        tier,
+        recovery_potential: res.recovery_potential || 0,
+        missing_charges:    (res.missing_charges || []).length,
+        uncharged_items:    (res.inventory_consumed_uncharged || []).length,
+      });
     } catch (err) {
       clearInterval(tick);
       setError(`Audit failed: ${err.message}`);
@@ -338,6 +349,11 @@ const IgnitionAudit = () => {
     DataBridge.save('transaction_history', existing);
     const updated = DataBridge.getAuditHistory();
     setHistory(updated);
+    DataBridge.trackEvent('AUDIT', 'result_logged_to_omni', {
+      tier,
+      recovery_potential: result.recovery_potential || 0,
+      items_logged: miss.length,
+    });
     alert(`Saved to OMNI leakage log. ${miss.length} item${miss.length !== 1 ? 's' : ''} recorded.`);
   };
 
