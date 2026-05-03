@@ -174,7 +174,12 @@ const DataBridge = {
 
   setShopId: (id) => {
     memoryStore._shopId = id;
-    if (isWeb) localStorage.setItem('IGNITION_SHOP_ID', id);
+    if (isWeb) {
+      localStorage.setItem('IGNITION_SHOP_ID', id);
+    } else if (AsyncStorage) {
+      AsyncStorage.setItem('IGNITION_SHOP_ID', id)
+        .catch(e => console.warn('[DataBridge] setShopId persist failed:', e));
+    }
   },
 
   /**
@@ -418,11 +423,18 @@ const DataBridge = {
   hydrate: async () => {
     if (isWeb || !AsyncStorage) return;
     try {
-      const raw = await AsyncStorage.getItem(DataBridge.storageKey);
+      const [raw, shopId] = await Promise.all([
+        AsyncStorage.getItem(DataBridge.storageKey),
+        AsyncStorage.getItem('IGNITION_SHOP_ID'),
+      ]);
       if (raw) {
         const stored = JSON.parse(raw);
         Object.assign(memoryStore, stored);
         console.log('[DataBridge] Mobile hydration complete —', Object.keys(stored).length, 'keys loaded');
+      }
+      if (shopId) {
+        memoryStore._shopId = shopId;
+        console.log('[DataBridge] Shop ID restored:', shopId);
       }
     } catch (e) {
       console.warn('[DataBridge] Hydration failed:', e);
