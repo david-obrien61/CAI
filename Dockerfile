@@ -7,6 +7,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY shop_estimate.py .
 COPY ai_router.py .
+COPY monitor.py .
 
 EXPOSE $PORT
 
