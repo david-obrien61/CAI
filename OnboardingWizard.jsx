@@ -7,10 +7,11 @@
  */
 
 import React, { useState, useRef } from 'react';
+import { QRCodeSVG } from 'qrcode.react';
 import {
   ArrowRight, ArrowLeft, CheckCircle, DollarSign, Wrench, Database,
   TrendingDown, TrendingUp, AlertCircle, ChevronRight, Zap, Building2,
-  Phone, Mail, MapPin, FileText, Upload, User, Car, Lock
+  Phone, Mail, MapPin, FileText, Upload, User, Car, Lock, Users, QrCode
 } from 'lucide-react';
 import DataBridge from './DataBridge';
 import { supabase } from './supabase';
@@ -65,13 +66,14 @@ const FAULT_LIBRARY = {
 // ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
 
 const OnboardingWizard = ({ onComplete }) => {
-  const STEPS = ['WELCOME', 'SHOP_SETUP', 'CHOOSE_PATH', 'PATH_EXPERIENCE', 'COMPLETE'];
+  const STEPS = ['WELCOME', 'SHOP_SETUP', 'CHOOSE_PATH', 'PATH_EXPERIENCE', 'TEAM_QR'];
   const [stepIndex, setStepIndex]   = useState(0);
   const [path, setPath]             = useState(null); // 'MARGIN' | 'DIAGNOSE' | 'MIGRATE'
   const [shopInfo, setShopInfo]     = useState({ name: '', phone: '', address: '', usdot: '' });
   const [ownerPin, setOwnerPin]     = useState('');
   const [ownerName, setOwnerName]   = useState('');
   const [shopInfoError, setShopInfoError] = useState('');
+  const [finalShopId, setFinalShopId]     = useState(null);
 
   const step = STEPS[stepIndex];
   const next = () => setStepIndex(i => Math.min(i + 1, STEPS.length - 1));
@@ -141,8 +143,8 @@ const OnboardingWizard = ({ onComplete }) => {
     DataBridge.save('user_profiles', updatedProfiles);
     DataBridge.save('current_user', updatedProfiles[pin]);
 
-    if (onComplete) onComplete();
-    else window.location.reload();
+    setFinalShopId(shopId);
+    setStepIndex(STEPS.indexOf('TEAM_QR'));
   };
 
   // ── STEP: WELCOME ──────────────────────────────────────────────────────────
@@ -784,23 +786,53 @@ const OnboardingWizard = ({ onComplete }) => {
     );
   };
 
-  // ── STEP: COMPLETE ─────────────────────────────────────────────────────────
+  // ── STEP: TEAM QR ──────────────────────────────────────────────────────────
 
-  const renderComplete = () => (
-    <div className="flex flex-col items-center text-center max-w-md mx-auto pt-8">
-      <div className="w-24 h-24 bg-gradient-to-br from-emerald-600 to-emerald-900 rounded-[2rem] flex items-center justify-center mb-8 shadow-2xl shadow-emerald-900/40">
-        <CheckCircle size={48} className="text-white" />
+  const renderTeamQR = () => {
+    const joinUrl = `${window.location.origin}/?join=${finalShopId}`;
+    const launch = () => {
+      if (onComplete) onComplete();
+      else window.location.href = '/';
+    };
+    return (
+      <div className="flex flex-col items-center text-center max-w-md mx-auto pt-4">
+        <div className="w-16 h-16 bg-gradient-to-br from-emerald-600 to-emerald-900 rounded-[1.5rem] flex items-center justify-center mb-6 shadow-2xl shadow-emerald-900/40">
+          <CheckCircle size={32} className="text-white" />
+        </div>
+
+        <h2 className="text-3xl font-black italic text-white uppercase tracking-tighter mb-1">Shop Is Live</h2>
+        <p className="text-slate-500 text-[10px] uppercase tracking-widest mb-8">Add your team — they scan once and they're in</p>
+
+        {/* QR Code */}
+        <div className="bg-white p-5 rounded-3xl mb-6 shadow-2xl">
+          <QRCodeSVG value={joinUrl} size={200} bgColor="#ffffff" fgColor="#000000" level="M" />
+        </div>
+
+        <div className="w-full bg-slate-900 border border-slate-800 rounded-2xl p-4 mb-8 text-left">
+          <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-2">How it works</p>
+          <div className="space-y-2">
+            {[
+              { role: 'Tech', color: 'text-blue-400', desc: 'Scans QR → picks Tech → sets PIN → goes to intake' },
+              { role: 'Front Office', color: 'text-purple-400', desc: 'Scans QR → picks Front Office → sets PIN → sees queue' },
+            ].map(({ role, color, desc }) => (
+              <div key={role} className="flex items-start gap-3">
+                <span className={`text-[9px] font-black uppercase ${color} w-20 flex-shrink-0 pt-0.5`}>{role}</span>
+                <span className="text-[9px] text-slate-500">{desc}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <button
+          onClick={launch}
+          className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-5 rounded-2xl uppercase tracking-widest text-sm transition-colors shadow-xl shadow-blue-900/40 active:scale-95 flex items-center justify-center gap-2"
+        >
+          Open My Dashboard <ArrowRight size={18} />
+        </button>
+        <p className="text-[9px] text-slate-600 mt-4 uppercase tracking-wider">Team members can also join later from Settings</p>
       </div>
-      <h2 className="text-3xl font-black italic text-white uppercase tracking-tighter mb-3">You're Set Up</h2>
-      <p className="text-slate-400 text-sm mb-10">Your dashboard is ready. Everything else can be configured from within the app.</p>
-      <button
-        onClick={() => finalize()}
-        className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-5 rounded-2xl uppercase tracking-widest text-sm transition-colors shadow-xl shadow-blue-900/40 active:scale-95"
-      >
-        Open Ignition OS
-      </button>
-    </div>
-  );
+    );
+  };
 
   // ── ROUTER ─────────────────────────────────────────────────────────────────
 
@@ -814,7 +846,7 @@ const OnboardingWizard = ({ onComplete }) => {
         if (path === 'DIAGNOSE') return <DiagnosePath />;
         if (path === 'MIGRATE')  return <MigratePath />;
         return null;
-      case 'COMPLETE':       return renderComplete();
+      case 'TEAM_QR':        return renderTeamQR();
       default:               return null;
     }
   };

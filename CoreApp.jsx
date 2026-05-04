@@ -7,6 +7,7 @@
 
 import React, { useState, useEffect } from 'react';
 import DataBridge from './DataBridge';
+import { supabase } from './supabase';
 import OnboardingWizard from './OnboardingWizard';
 import IgnitionFlux from './modules/IgnitionFlux';
 import PredictiveKey from './modules/PredictiveKey';
@@ -23,7 +24,130 @@ import IgnitionCRM from './modules/IgnitionCRM';
 import IgnitionCompliance from './modules/IgnitionCompliance';
 import IgnitionAdmin from './modules/IgnitionAdmin';
 import IgnitionAudit from './modules/IgnitionAudit';
-import { Lock, LayoutDashboard, Truck, Activity, ShoppingCart, Search, Package, BarChart3, ShieldCheck, Users, Map, Store, ScanLine, QrCode, DollarSign, RefreshCw, UserPlus, ClipboardCheck, Cog, FileSearch } from 'lucide-react';
+import { Lock, LayoutDashboard, Truck, Activity, ShoppingCart, Search, Package, BarChart3, ShieldCheck, Users, Map, Store, ScanLine, QrCode, DollarSign, RefreshCw, UserPlus, ClipboardCheck, Cog, FileSearch, CheckCircle, ChevronRight } from 'lucide-react';
+
+/**
+ * UI: Join Flow — tech/staff scan owner's QR code, pick role, set PIN, land in app
+ */
+const JoinFlow = ({ shopId }) => {
+  const [phase, setPhase]     = useState('role');   // 'role' | 'pin' | 'done'
+  const [role, setRole]       = useState(null);
+  const [name, setName]       = useState('');
+  const [pin, setPin]         = useState('');
+  const [shopName, setShopName] = useState('');
+  const [error, setError]     = useState('');
+
+  useEffect(() => {
+    supabase.from('shops').select('name').eq('id', shopId).single()
+      .then(({ data }) => { if (data?.name) setShopName(data.name); });
+  }, [shopId]);
+
+  const ROLES = [
+    { id: 'TECH',    label: 'Technician',    color: 'blue',   desc: 'Intake · VIN · Voice · Workflow' },
+    { id: 'SERVICE', label: 'Front Office',  color: 'purple', desc: 'Queue · Estimates · Customers' },
+  ];
+
+  const finalize = () => {
+    if (pin.length !== 4) return setError('PIN must be 4 digits.');
+    if (!name.trim())     return setError('Your name is required.');
+    DataBridge.setShopId(shopId);
+    const profiles = DataBridge.getProfiles();
+    if (profiles[pin])    return setError('That PIN is already taken — choose another.');
+    const newProfile = {
+      id: pin, name: name.trim(), role,
+      allowed: role === 'TECH'
+        ? ['intake','queue','vin','voice','estimates','parts','tools']
+        : ['intake','queue','estimates','parts','procure','crm','kiosk'],
+      preferences: { pinnedSpecs: ['Model Year','Make','Model'] },
+      hasSignedWaiver: false,
+      permissions: role === 'TECH' ? ['TECH'] : ['TECH'],
+    };
+    const updated = { ...profiles, [pin]: newProfile };
+    DataBridge.save('user_profiles', updated);
+    DataBridge.save('current_user', newProfile);
+    window.history.replaceState({}, '', '/');
+    setPhase('done');
+    setTimeout(() => window.location.reload(), 1200);
+  };
+
+  if (phase === 'done') return (
+    <div className="h-screen w-screen bg-black flex flex-col items-center justify-center p-6">
+      <div className="w-20 h-20 bg-emerald-600/10 border border-emerald-500/30 rounded-3xl flex items-center justify-center mb-6">
+        <CheckCircle size={40} className="text-emerald-400" />
+      </div>
+      <h1 className="text-2xl font-black italic text-white uppercase tracking-tighter mb-2">You're In</h1>
+      <p className="text-slate-500 text-[10px] uppercase tracking-widest">Loading {shopName}...</p>
+    </div>
+  );
+
+  return (
+    <div className="h-screen w-screen bg-black flex flex-col items-center justify-center p-6 relative overflow-hidden">
+      <div className="absolute inset-0" style={{ backgroundImage: 'linear-gradient(rgba(30,41,59,0.3) 1px, transparent 1px), linear-gradient(90deg, rgba(30,41,59,0.3) 1px, transparent 1px)', backgroundSize: '40px 40px' }} />
+      <div className="relative z-10 w-full max-w-sm">
+        <div className="text-center mb-8">
+          <p className="text-[9px] font-black text-blue-500 uppercase tracking-widest mb-2">Ignition OS</p>
+          <h1 className="text-2xl font-black italic text-white uppercase tracking-tighter">
+            {shopName ? `Join ${shopName}` : 'Join Shop'}
+          </h1>
+        </div>
+
+        {phase === 'role' && (
+          <div className="space-y-3">
+            {ROLES.map(({ id, label, color, desc }) => (
+              <button
+                key={id}
+                onClick={() => { setRole(id); setPhase('pin'); }}
+                className={`w-full bg-slate-900 border border-slate-800 hover:border-${color}-500/50 rounded-3xl p-6 flex items-center gap-4 text-left transition-all active:scale-[0.98]`}
+              >
+                <div className={`w-12 h-12 rounded-2xl bg-${color}-600/10 border border-${color}-500/20 flex items-center justify-center flex-shrink-0`}>
+                  <Users size={20} className={`text-${color}-400`} />
+                </div>
+                <div>
+                  <p className="text-sm font-black text-white uppercase italic tracking-tighter">{label}</p>
+                  <p className="text-[9px] text-slate-500 mt-0.5">{desc}</p>
+                </div>
+                <ChevronRight size={16} className="text-slate-600 ml-auto" />
+              </button>
+            ))}
+          </div>
+        )}
+
+        {phase === 'pin' && (
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 space-y-5">
+            <div>
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Your Name</label>
+              <input
+                value={name} onChange={e => setName(e.target.value)}
+                placeholder="First name or nickname"
+                className="w-full bg-black border border-slate-800 rounded-xl p-4 text-white font-bold text-sm focus:outline-none focus:border-blue-500 transition-colors"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Create Your 4-Digit PIN</label>
+              <input
+                type="password" value={pin} maxLength={4}
+                onChange={e => { setPin(e.target.value.replace(/\D/g, '').slice(0, 4)); setError(''); }}
+                placeholder="••••"
+                className="w-full bg-black border border-slate-800 rounded-xl p-4 text-white font-bold text-2xl tracking-[1em] text-center focus:outline-none focus:border-blue-500 transition-colors"
+              />
+            </div>
+            {error && <p className="text-red-400 text-[10px] font-bold">{error}</p>}
+            <button
+              onClick={finalize}
+              disabled={pin.length !== 4 || !name.trim()}
+              className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-slate-800 disabled:text-slate-600 text-white font-black py-4 rounded-2xl uppercase tracking-widest text-[10px] transition-colors active:scale-95"
+            >
+              Join Shop
+            </button>
+            <button onClick={() => setPhase('role')} className="w-full text-slate-600 text-[10px] font-black uppercase tracking-wider hover:text-slate-400 transition-colors">
+              ← Change Role
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
 
 /**
  * UI: The Enrollment Generator & Gate
@@ -278,6 +402,12 @@ const CoreApp = () => {
   const enrollToken = urlParams.get('enroll');
   if (enrollToken) {
      return <EnrollmentGate token={enrollToken} />;
+  }
+
+  // JOIN FLOW: Tech/staff scan owner's QR code to join the shop
+  const joinShopId = urlParams.get('join');
+  if (joinShopId) {
+    return <JoinFlow shopId={joinShopId} />;
   }
 
   if (!currentUser) {
