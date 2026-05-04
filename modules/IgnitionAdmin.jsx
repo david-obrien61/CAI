@@ -5,12 +5,15 @@
  *          Gated to ADMIN permission. Replaces the React Native placeholder.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Users, ShieldCheck, Settings, Plus, Trash2, Save, Lock,
   AlertTriangle, CheckCircle, Eye, EyeOff, ChevronDown,
-  ChevronUp, UserMinus, UserPlus, Edit3, X
+  ChevronUp, UserMinus, UserPlus, Edit3, X, Phone, Send,
+  KeyRound, Copy, RefreshCw, QrCode
 } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
+import { supabase } from '../supabase';
 import DataBridge from '../DataBridge';
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
@@ -139,7 +142,7 @@ const AddStaffModal = ({ onClose, onSaved }) => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-      <div className="bg-slate-950 border border-slate-800 rounded-[2rem] shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+      <div className="bg-slate-950 border border-slate-800 rounded-[2rem] shadow-2xl w-full max-w-lg max-h-[85dvh] overflow-y-auto">
         <div className="flex items-center justify-between p-6 border-b border-slate-800">
           <h3 className="text-sm font-black text-white uppercase tracking-widest">Add Staff Member</h3>
           <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors"><X size={18} /></button>
@@ -239,6 +242,152 @@ const AddStaffModal = ({ onClose, onSaved }) => {
   );
 };
 
+// ─── INVITE STAFF MODAL ──────────────────────────────────────────────────────
+
+const InviteStaffModal = ({ onClose }) => {
+  const shopId = DataBridge.load('shop_info')?.id || DataBridge.load('shop_policy')?.shop_id;
+  const [form, setForm] = useState({ name: '', role: 'TECH', phone: '' });
+  const [inviteLink, setInviteLink] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [copied, setCopied] = useState(false);
+
+  const generate = async () => {
+    if (!form.name.trim()) return setError('Name is required.');
+    if (!shopId) return setError('Shop not initialized. Complete onboarding first.');
+    setLoading(true);
+    setError('');
+    const token = crypto.randomUUID();
+    const { error: dbErr } = await supabase.from('shop_invites').insert({
+      token,
+      shop_id: shopId,
+      name: form.name.trim().toUpperCase(),
+      role: form.role,
+      phone: form.phone.trim() || null,
+    });
+    if (dbErr) {
+      setError('Failed to generate invite. Check connection.');
+      setLoading(false);
+      return;
+    }
+    setInviteLink(`${window.location.origin}/?join=${shopId}&invite=${token}`);
+    setLoading(false);
+  };
+
+  const copy = () => {
+    navigator.clipboard.writeText(inviteLink);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const sendSms = () => {
+    const msg = `You've been invited to join the team on Ignition OS. Tap to set up your profile: ${inviteLink}`;
+    const phone = form.phone.replace(/\D/g, '');
+    window.open(`sms:${phone}?body=${encodeURIComponent(msg)}`);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+      <div className="bg-slate-950 border border-slate-800 rounded-[2rem] shadow-2xl w-full max-w-lg">
+        <div className="flex items-center justify-between p-6 border-b border-slate-800">
+          <h3 className="text-sm font-black text-white uppercase tracking-widest">Invite Staff Member</h3>
+          <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors"><X size={18} /></button>
+        </div>
+
+        <div className="p-6 space-y-5">
+          {error && (
+            <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3">
+              <AlertTriangle size={13} className="text-red-400" />
+              <p className="text-[10px] font-black text-red-400">{error}</p>
+            </div>
+          )}
+
+          {!inviteLink ? (
+            <>
+              <div>
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Full Name *</label>
+                <input
+                  value={form.name}
+                  onChange={e => { setForm(f => ({ ...f, name: e.target.value })); setError(''); }}
+                  placeholder="MIKE SMITH"
+                  className="w-full bg-black border border-slate-800 rounded-xl px-4 py-3 text-white font-bold text-sm focus:outline-none focus:border-blue-500 transition-colors"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Role</label>
+                  <select
+                    value={form.role}
+                    onChange={e => setForm(f => ({ ...f, role: e.target.value }))}
+                    className="w-full bg-black border border-slate-800 rounded-xl px-4 py-3 text-white font-bold text-sm focus:outline-none focus:border-blue-500 transition-colors"
+                  >
+                    <option value="TECH">Technician</option>
+                    <option value="SERVICE">Front Office</option>
+                    <option value="ADMIN">Admin</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Phone (for SMS)</label>
+                  <input
+                    value={form.phone}
+                    onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
+                    placeholder="512-555-0100"
+                    type="tel"
+                    className="w-full bg-black border border-slate-800 rounded-xl px-4 py-3 text-white font-bold text-sm focus:outline-none focus:border-blue-500 transition-colors"
+                  />
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="space-y-4">
+              <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-2xl p-4">
+                <p className="text-[9px] font-black text-emerald-400 uppercase tracking-widest mb-2">Invite generated for {form.name}</p>
+                <p className="text-[10px] text-slate-400 break-all font-mono leading-relaxed">{inviteLink}</p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={copy}
+                  className="flex items-center justify-center gap-2 bg-slate-900 border border-slate-700 text-slate-300 font-black py-3 rounded-xl text-[10px] uppercase tracking-widest hover:bg-slate-800 transition-colors"
+                >
+                  <Copy size={13} />
+                  {copied ? 'Copied!' : 'Copy Link'}
+                </button>
+                <button
+                  onClick={sendSms}
+                  className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-black py-3 rounded-xl text-[10px] uppercase tracking-widest transition-colors"
+                >
+                  <Send size={13} /> Send SMS
+                </button>
+              </div>
+
+              <p className="text-[9px] text-slate-600 text-center">
+                Single-use link · {form.name} picks their own PIN
+              </p>
+            </div>
+          )}
+        </div>
+
+        <div className="p-6 border-t border-slate-800 flex gap-3">
+          <button onClick={onClose} className="flex-1 bg-slate-900 border border-slate-700 text-slate-300 font-black py-3 rounded-xl text-[10px] uppercase tracking-widest hover:bg-slate-800 transition-colors">
+            {inviteLink ? 'Done' : 'Cancel'}
+          </button>
+          {!inviteLink && (
+            <button
+              onClick={generate}
+              disabled={loading || !form.name.trim()}
+              className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-black py-3 rounded-xl text-[10px] uppercase tracking-widest transition-colors flex items-center justify-center gap-2"
+            >
+              {loading ? 'Generating...' : <><Send size={13} /> Generate Invite</>}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ─── REVOKE MODAL ─────────────────────────────────────────────────────────────
 
 const RevokeModal = ({ user, onClose, onRevoked }) => {
@@ -329,7 +478,7 @@ const EditPermissionsModal = ({ user, onClose, onSaved }) => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-      <div className="bg-slate-950 border border-slate-800 rounded-[2rem] shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+      <div className="bg-slate-950 border border-slate-800 rounded-[2rem] shadow-2xl w-full max-w-lg max-h-[85dvh] overflow-y-auto">
         <div className="flex items-center justify-between p-6 border-b border-slate-800">
           <div>
             <h3 className="text-sm font-black text-white uppercase tracking-widest">Edit: {user.name}</h3>
@@ -506,6 +655,224 @@ const StaffTab = () => {
           onClose={() => setEditTarget(null)}
           onSaved={() => { setEditTarget(null); refresh(); }}
         />
+      )}
+    </div>
+  );
+};
+
+// ─── TAB: TEAM ────────────────────────────────────────────────────────────────
+
+const TeamTab = () => {
+  const shopId = DataBridge.load('shop_info')?.id || DataBridge.load('shop_policy')?.shop_id;
+  const joinUrl = shopId ? `${window.location.origin}/?join=${shopId}` : '';
+
+  const [members, setMembers]           = useState([]);
+  const [pendingInvites, setPendingInvites] = useState([]);
+  const [loading, setLoading]           = useState(true);
+  const [showInvite, setShowInvite]     = useState(false);
+  const [resetCodeData, setResetCodeData] = useState(null);
+  const [generatingReset, setGeneratingReset] = useState(null);
+  const [copied, setCopied]             = useState(false);
+
+  const refresh = async () => {
+    if (!shopId) { setLoading(false); return; }
+    setLoading(true);
+    const [membersRes, invitesRes] = await Promise.all([
+      supabase.from('shop_members').select('*').eq('shop_id', shopId).order('joined_at', { ascending: false }),
+      supabase.from('shop_invites').select('*').eq('shop_id', shopId).eq('used', false).order('created_at', { ascending: false }),
+    ]);
+    setMembers(membersRes.data || []);
+    setPendingInvites(invitesRes.data || []);
+    setLoading(false);
+  };
+
+  useEffect(() => { refresh(); }, [shopId]);
+
+  const generateReset = async (member) => {
+    setGeneratingReset(member.id);
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+    const { error } = await supabase.from('pin_resets').insert({
+      reset_code: code,
+      shop_id: shopId,
+      member_name: member.name,
+      member_role: member.role,
+      permissions: member.permissions || [],
+      expires_at: expiresAt,
+    });
+    setGeneratingReset(null);
+    if (!error) setResetCodeData({ code, name: member.name });
+  };
+
+  const revokeInvite = async (inviteId) => {
+    await supabase.from('shop_invites').update({ used: true }).eq('id', inviteId);
+    setPendingInvites(inv => inv.filter(i => i.id !== inviteId));
+  };
+
+  const copyLink = () => {
+    navigator.clipboard.writeText(joinUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Shop QR Code */}
+      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
+        <div className="flex justify-between items-start mb-5">
+          <div>
+            <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Shop Join Code</p>
+            <p className="text-[9px] text-slate-600">Team members scan to join this shop</p>
+          </div>
+          <button
+            onClick={copyLink}
+            className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-black px-3 py-2 rounded-xl text-[9px] uppercase tracking-wider transition-colors"
+          >
+            <Copy size={11} /> {copied ? 'Copied!' : 'Copy Link'}
+          </button>
+        </div>
+        <div className="flex justify-center">
+          {shopId ? (
+            <div className="bg-white p-4 rounded-2xl shadow-lg">
+              <QRCodeSVG value={joinUrl} size={160} bgColor="#ffffff" fgColor="#000000" level="M" />
+            </div>
+          ) : (
+            <div className="w-40 h-40 bg-slate-800 rounded-2xl flex items-center justify-center">
+              <p className="text-[9px] text-slate-600 uppercase text-center px-4">Complete onboarding to get QR</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Team Members */}
+      <div>
+        <div className="flex justify-between items-center mb-3">
+          <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+            {loading ? '...' : members.length} Team Member{members.length !== 1 ? 's' : ''}
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={refresh}
+              className="p-2 bg-slate-900 border border-slate-800 rounded-lg text-slate-500 hover:text-white transition-colors"
+              title="Refresh"
+            >
+              <RefreshCw size={12} />
+            </button>
+            <button
+              onClick={() => setShowInvite(true)}
+              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-black px-4 py-2 rounded-xl text-[9px] uppercase tracking-widest transition-colors"
+            >
+              <Plus size={12} /> Invite
+            </button>
+          </div>
+        </div>
+
+        {loading ? (
+          <div className="text-center py-8 text-slate-600 text-[10px] uppercase tracking-wider animate-pulse">Loading team...</div>
+        ) : members.length === 0 ? (
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center">
+            <Users size={32} className="text-slate-700 mx-auto mb-3" />
+            <p className="text-[10px] text-slate-600 uppercase tracking-wider">No team members yet</p>
+            <p className="text-[9px] text-slate-700 mt-1">Share the QR code or generate invite links</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {members.map(member => (
+              <div key={member.id} className="bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 flex items-center gap-4 hover:border-slate-700 transition-colors">
+                <div className="w-10 h-10 rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center flex-shrink-0">
+                  <span className="text-[10px] font-black text-slate-400 uppercase">
+                    {member.name?.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                  </span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-sm font-black text-white uppercase">{member.name}</p>
+                    <Badge label={member.role} color={roleColor(member.role)} />
+                  </div>
+                  {member.phone && (
+                    <p className="text-[9px] text-slate-600 mt-0.5 flex items-center gap-1">
+                      <Phone size={9} /> {member.phone}
+                    </p>
+                  )}
+                </div>
+                <button
+                  onClick={() => generateReset(member)}
+                  disabled={generatingReset === member.id}
+                  className="flex items-center gap-1.5 bg-slate-800 hover:bg-orange-600/20 border border-slate-700 hover:border-orange-500/40 text-slate-400 hover:text-orange-400 font-black px-3 py-2 rounded-xl text-[9px] uppercase tracking-wider transition-all disabled:opacity-50"
+                  title="Generate PIN reset code"
+                >
+                  <KeyRound size={11} />
+                  {generatingReset === member.id ? '...' : 'Reset PIN'}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Pending Invites */}
+      {pendingInvites.length > 0 && (
+        <div>
+          <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3">
+            {pendingInvites.length} Pending Invite{pendingInvites.length !== 1 ? 's' : ''}
+          </p>
+          <div className="space-y-2">
+            {pendingInvites.map(invite => (
+              <div key={invite.id} className="bg-slate-900 border border-slate-800 rounded-2xl px-5 py-3 flex items-center gap-4">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-sm font-black text-white uppercase">{invite.name}</p>
+                    <Badge label={invite.role} color={roleColor(invite.role)} />
+                    <Badge label="Pending" color="orange" />
+                  </div>
+                  {invite.phone && <p className="text-[9px] text-slate-600">{invite.phone}</p>}
+                </div>
+                <button
+                  onClick={() => revokeInvite(invite.id)}
+                  className="text-slate-600 hover:text-red-400 transition-colors p-2"
+                  title="Revoke invite"
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Invite Modal */}
+      {showInvite && (
+        <InviteStaffModal onClose={() => { setShowInvite(false); refresh(); }} />
+      )}
+
+      {/* Reset Code Modal */}
+      {resetCodeData && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+          <div className="bg-slate-950 border border-orange-500/30 rounded-[2rem] shadow-2xl w-full max-w-sm">
+            <div className="p-8 text-center">
+              <div className="w-16 h-16 bg-orange-500/10 border border-orange-500/30 rounded-2xl flex items-center justify-center mx-auto mb-5">
+                <KeyRound size={28} className="text-orange-400" />
+              </div>
+              <p className="text-[10px] font-black text-orange-400 uppercase tracking-widest mb-1">PIN Reset Code</p>
+              <p className="text-[9px] text-slate-500 mb-6">
+                Read this code aloud to <span className="text-white font-black">{resetCodeData.name}</span>.<br />
+                Valid for 15 minutes · Single use.
+              </p>
+              <div className="bg-black border border-orange-500/20 rounded-2xl py-6 mb-5">
+                <p className="text-5xl font-black text-orange-400 tracking-[0.3em]">{resetCodeData.code}</p>
+              </div>
+              <p className="text-[9px] text-slate-600 mb-6">
+                They'll enter this on the "Forgot PIN" screen to set a new PIN.
+              </p>
+              <button
+                onClick={() => setResetCodeData(null)}
+                className="w-full bg-slate-900 border border-slate-700 text-slate-300 font-black py-3 rounded-xl text-[10px] uppercase tracking-widest hover:bg-slate-800 transition-colors"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -790,6 +1157,7 @@ const ShopTab = () => {
 // ─── ROOT COMPONENT ───────────────────────────────────────────────────────────
 
 const TABS = [
+  { id: 'TEAM',  label: 'Team',         icon: QrCode     },
   { id: 'STAFF', label: 'Staff',        icon: Users      },
   { id: 'ROLES', label: 'Roles',        icon: ShieldCheck },
   { id: 'SHOP',  label: 'Shop Settings', icon: Settings   },
@@ -797,7 +1165,7 @@ const TABS = [
 
 const IgnitionAdmin = () => {
   const currentUser = DataBridge.load('current_user');
-  const [activeTab, setActiveTab] = useState('STAFF');
+  const [activeTab, setActiveTab] = useState('TEAM');
 
   const isAdmin = currentUser?.permissions?.includes('ADMIN') || currentUser?.permissions?.includes('manage_users');
 
@@ -828,6 +1196,7 @@ const IgnitionAdmin = () => {
         ))}
       </div>
 
+      {activeTab === 'TEAM'  && <TeamTab />}
       {activeTab === 'STAFF' && <StaffTab />}
       {activeTab === 'ROLES' && <RolesTab />}
       {activeTab === 'SHOP'  && <ShopTab />}

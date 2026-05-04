@@ -27,48 +27,206 @@ import IgnitionAudit from './modules/IgnitionAudit';
 import { Lock, LayoutDashboard, Truck, Activity, ShoppingCart, Search, Package, BarChart3, ShieldCheck, Users, Map, Store, ScanLine, QrCode, DollarSign, RefreshCw, UserPlus, ClipboardCheck, Cog, FileSearch, CheckCircle, ChevronRight } from 'lucide-react';
 
 /**
+ * UI: Forgot PIN flow — staff enters 6-digit reset code from admin, sets new PIN
+ */
+const ForgotPinFlow = ({ onCancel }) => {
+  const shopId = DataBridge.load('shop_info')?.id || DataBridge.load('shop_policy')?.shop_id;
+  const [phase, setPhase]       = useState('code'); // 'code' | 'newpin' | 'done'
+  const [code, setCode]         = useState('');
+  const [newPin, setNewPin]     = useState('');
+  const [resetData, setResetData] = useState(null);
+  const [error, setError]       = useState('');
+  const [loading, setLoading]   = useState(false);
+
+  const verifyCode = async () => {
+    if (code.length !== 6) return setError('Enter the 6-digit code from your manager.');
+    setLoading(true);
+    setError('');
+    const { data, error: dbErr } = await supabase
+      .from('pin_resets')
+      .select('*')
+      .eq('reset_code', code)
+      .eq('shop_id', shopId)
+      .eq('used', false)
+      .gte('expires_at', new Date().toISOString())
+      .single();
+    setLoading(false);
+    if (dbErr || !data) {
+      setError('Invalid or expired code. Ask your manager for a new one.');
+      return;
+    }
+    setResetData(data);
+    setPhase('newpin');
+  };
+
+  const applyNewPin = async () => {
+    if (newPin.length !== 4) return setError('PIN must be 4 digits.');
+    const profiles = DataBridge.getProfiles();
+    if (profiles[newPin]) return setError('That PIN is already in use — choose another.');
+    const cleanProfiles = { ...profiles };
+    const oldEntry = Object.entries(profiles).find(([, p]) => p.name === resetData.member_name);
+    if (oldEntry) delete cleanProfiles[oldEntry[0]];
+    const perms = resetData.permissions || [];
+    const newProfile = {
+      id: newPin,
+      name: resetData.member_name,
+      role: resetData.member_role,
+      permissions: perms,
+      allowed: perms.filter(p => p.startsWith('view_')).map(p => p.replace('view_', '')),
+      hasSignedWaiver: false,
+      preferences: { pinnedSpecs: ['Model Year', 'Make', 'Model'] },
+    };
+    DataBridge.save('user_profiles', { ...cleanProfiles, [newPin]: newProfile });
+    DataBridge.save('current_user', newProfile);
+    await supabase.from('pin_resets').update({ used: true }).eq('id', resetData.id);
+    setPhase('done');
+    setTimeout(() => window.location.reload(), 1500);
+  };
+
+  if (phase === 'done') return (
+    <div className="text-center">
+      <CheckCircle size={48} className="text-emerald-400 mx-auto mb-4" />
+      <p className="text-white font-black text-lg uppercase italic tracking-tighter">PIN Updated</p>
+      <p className="text-slate-500 text-[10px] mt-1 uppercase tracking-widest">Logging you in...</p>
+    </div>
+  );
+
+  return (
+    <div className="space-y-5">
+      <div className="text-center mb-2">
+        <p className="text-[9px] font-black text-orange-400 uppercase tracking-widest mb-2">Forgot PIN</p>
+        <h2 className="text-xl font-black italic text-white uppercase tracking-tighter">
+          {phase === 'code' ? 'Enter Reset Code' : 'Set New PIN'}
+        </h2>
+        {phase === 'code' && (
+          <p className="text-[9px] text-slate-500 mt-2 leading-relaxed">
+            Ask your manager to generate a reset code in Admin → Team.
+          </p>
+        )}
+        {phase === 'newpin' && resetData && (
+          <p className="text-[10px] text-slate-400 mt-1">
+            Welcome back, <span className="text-white font-black">{resetData.member_name}</span>
+          </p>
+        )}
+      </div>
+
+      {phase === 'code' && (
+        <input
+          value={code}
+          onChange={e => { setCode(e.target.value.replace(/\D/g, '').slice(0, 6)); setError(''); }}
+          placeholder="000000"
+          maxLength={6}
+          className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-5 text-white font-black text-3xl tracking-[0.3em] text-center focus:outline-none focus:border-orange-500 transition-colors"
+        />
+      )}
+
+      {phase === 'newpin' && (
+        <input
+          type="password"
+          value={newPin}
+          onChange={e => { setNewPin(e.target.value.replace(/\D/g, '').slice(0, 4)); setError(''); }}
+          placeholder="••••"
+          maxLength={4}
+          className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-5 text-white font-black text-3xl tracking-[1em] text-center focus:outline-none focus:border-blue-500 transition-colors"
+        />
+      )}
+
+      {error && <p className="text-red-400 text-[10px] font-bold text-center">{error}</p>}
+
+      <button
+        onClick={phase === 'code' ? verifyCode : applyNewPin}
+        disabled={loading || (phase === 'code' && code.length !== 6) || (phase === 'newpin' && newPin.length !== 4)}
+        className="w-full bg-orange-600 hover:bg-orange-500 disabled:bg-slate-800 disabled:text-slate-600 text-white font-black py-4 rounded-2xl uppercase tracking-widest text-[10px] transition-colors active:scale-95"
+      >
+        {loading ? 'Verifying...' : phase === 'code' ? 'Verify Code' : 'Set New PIN'}
+      </button>
+
+      <button onClick={onCancel} className="w-full text-slate-600 text-[10px] font-black uppercase tracking-wider hover:text-slate-400 transition-colors">
+        ← Back to Login
+      </button>
+    </div>
+  );
+};
+
+/**
  * UI: Join Flow — tech/staff scan owner's QR code, pick role, set PIN, land in app
  */
-const JoinFlow = ({ shopId }) => {
-  const [phase, setPhase]     = useState('role');   // 'role' | 'pin' | 'done'
-  const [role, setRole]       = useState(null);
-  const [name, setName]       = useState('');
-  const [pin, setPin]         = useState('');
-  const [shopName, setShopName] = useState('');
-  const [error, setError]     = useState('');
+const JoinFlow = ({ shopId, inviteToken }) => {
+  const [phase, setPhase]         = useState(inviteToken ? 'loading' : 'role');
+  const [role, setRole]           = useState(null);
+  const [name, setName]           = useState('');
+  const [phone, setPhone]         = useState('');
+  const [pin, setPin]             = useState('');
+  const [shopName, setShopName]   = useState('');
+  const [inviteData, setInviteData] = useState(null);
+  const [inviteError, setInviteError] = useState('');
+  const [error, setError]         = useState('');
 
   useEffect(() => {
     supabase.from('shops').select('name').eq('id', shopId).single()
       .then(({ data }) => { if (data?.name) setShopName(data.name); });
   }, [shopId]);
 
+  useEffect(() => {
+    if (!inviteToken) return;
+    supabase.from('shop_invites').select('*').eq('token', inviteToken).eq('used', false).single()
+      .then(({ data, error: err }) => {
+        if (err || !data) {
+          setInviteError('This invite link has already been used or is invalid.');
+          setPhase('role');
+          return;
+        }
+        setInviteData(data);
+        setName(data.name);
+        setRole(data.role);
+        setPhone(data.phone || '');
+        setPhase('pin');
+      });
+  }, [inviteToken]);
+
   const ROLES = [
-    { id: 'TECH',    label: 'Technician',    color: 'blue',   desc: 'Intake · VIN · Voice · Workflow' },
-    { id: 'SERVICE', label: 'Front Office',  color: 'purple', desc: 'Queue · Estimates · Customers' },
+    { id: 'TECH',    label: 'Technician',   color: 'blue',   desc: 'Intake · VIN · Voice · Workflow' },
+    { id: 'SERVICE', label: 'Front Office', color: 'purple', desc: 'Queue · Estimates · Customers' },
   ];
 
-  const finalize = () => {
+  const finalize = async () => {
     if (pin.length !== 4) return setError('PIN must be 4 digits.');
     if (!name.trim())     return setError('Your name is required.');
     DataBridge.setShopId(shopId);
     const profiles = DataBridge.getProfiles();
     if (profiles[pin])    return setError('That PIN is already taken — choose another.');
+    const permissions = role === 'ADMIN' ? ['ADMIN'] : role === 'TECH' ? ['TECH'] : ['SERVICE'];
     const newProfile = {
-      id: pin, name: name.trim(), role,
+      id: pin,
+      name: name.trim(),
+      role,
+      phone: phone.trim() || null,
       allowed: role === 'TECH'
         ? ['intake','queue','vin','voice','estimates','parts','tools']
         : ['intake','queue','estimates','parts','procure','crm','kiosk'],
-      preferences: { pinnedSpecs: ['Model Year','Make','Model'] },
+      preferences: { pinnedSpecs: ['Model Year', 'Make', 'Model'] },
       hasSignedWaiver: false,
-      permissions: role === 'TECH' ? ['TECH'] : ['TECH'],
+      permissions,
     };
-    const updated = { ...profiles, [pin]: newProfile };
-    DataBridge.save('user_profiles', updated);
+    DataBridge.save('user_profiles', { ...profiles, [pin]: newProfile });
     DataBridge.save('current_user', newProfile);
+    await supabase.from('shop_members').insert({
+      shop_id: shopId, name: newProfile.name, role: newProfile.role,
+      phone: newProfile.phone, permissions: newProfile.permissions,
+    });
+    if (inviteToken && inviteData) {
+      await supabase.from('shop_invites').update({ used: true }).eq('id', inviteData.id);
+    }
     window.history.replaceState({}, '', '/');
     setPhase('done');
     setTimeout(() => window.location.reload(), 1200);
   };
+
+  if (phase === 'loading') return (
+    <div className="h-screen w-screen bg-black flex items-center justify-center">
+      <p className="text-slate-500 text-[10px] uppercase tracking-widest animate-pulse">Verifying invite...</p>
+    </div>
+  );
 
   if (phase === 'done') return (
     <div className="h-screen w-screen bg-black flex flex-col items-center justify-center p-6">
@@ -89,6 +247,12 @@ const JoinFlow = ({ shopId }) => {
           <h1 className="text-2xl font-black italic text-white uppercase tracking-tighter">
             {shopName ? `Join ${shopName}` : 'Join Shop'}
           </h1>
+          {inviteData && (
+            <p className="text-[9px] text-emerald-400 font-black uppercase tracking-widest mt-2">Invite accepted</p>
+          )}
+          {inviteError && (
+            <p className="text-[9px] text-orange-400 font-bold mt-2">{inviteError}</p>
+          )}
         </div>
 
         {phase === 'role' && (
@@ -97,7 +261,7 @@ const JoinFlow = ({ shopId }) => {
               <button
                 key={id}
                 onClick={() => { setRole(id); setPhase('pin'); }}
-                className={`w-full bg-slate-900 border border-slate-800 hover:border-${color}-500/50 rounded-3xl p-6 flex items-center gap-4 text-left transition-all active:scale-[0.98]`}
+                className="w-full bg-slate-900 border border-slate-800 rounded-3xl p-6 flex items-center gap-4 text-left transition-all active:scale-[0.98] hover:border-slate-600"
               >
                 <div className={`w-12 h-12 rounded-2xl bg-${color}-600/10 border border-${color}-500/20 flex items-center justify-center flex-shrink-0`}>
                   <Users size={20} className={`text-${color}-400`} />
@@ -117,8 +281,21 @@ const JoinFlow = ({ shopId }) => {
             <div>
               <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Your Name</label>
               <input
-                value={name} onChange={e => setName(e.target.value)}
+                value={name}
+                onChange={e => !inviteData && setName(e.target.value)}
+                readOnly={!!inviteData}
                 placeholder="First name or nickname"
+                className={`w-full bg-black border rounded-xl p-4 text-white font-bold text-sm focus:outline-none transition-colors ${inviteData ? 'border-slate-700 opacity-60 cursor-not-allowed' : 'border-slate-800 focus:border-blue-500'}`}
+              />
+              {inviteData && <p className="text-[9px] text-slate-600 mt-1">Pre-filled from invite</p>}
+            </div>
+            <div>
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Phone <span className="text-slate-700 normal-case">(optional)</span></label>
+              <input
+                value={phone}
+                onChange={e => setPhone(e.target.value)}
+                placeholder="512-555-0100"
+                type="tel"
                 className="w-full bg-black border border-slate-800 rounded-xl p-4 text-white font-bold text-sm focus:outline-none focus:border-blue-500 transition-colors"
               />
             </div>
@@ -139,9 +316,11 @@ const JoinFlow = ({ shopId }) => {
             >
               Join Shop
             </button>
-            <button onClick={() => setPhase('role')} className="w-full text-slate-600 text-[10px] font-black uppercase tracking-wider hover:text-slate-400 transition-colors">
-              ← Change Role
-            </button>
+            {!inviteData && (
+              <button onClick={() => setPhase('role')} className="w-full text-slate-600 text-[10px] font-black uppercase tracking-wider hover:text-slate-400 transition-colors">
+                ← Change Role
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -285,8 +464,9 @@ const AccessGatekeeper = ({ requiredPermissions, children }) => {
  * UI: The PIN Login Block
  */
 const IdentityMatrix = ({ onLogin }) => {
-  const [pin, setPin] = useState('');
-  
+  const [pin, setPin]             = useState('');
+  const [showForgot, setShowForgot] = useState(false);
+
   const handleLogin = () => {
      const user = DataBridge.authenticate(pin);
      if (user) {
@@ -299,31 +479,44 @@ const IdentityMatrix = ({ onLogin }) => {
 
   return (
     <div className="h-screen w-screen bg-black flex flex-col items-center justify-center p-6 relative overflow-hidden">
-       {/* Background Grid Pattern */}
        <div className="absolute inset-0" style={{ backgroundImage: 'linear-gradient(rgba(30,41,59,0.3) 1px, transparent 1px), linear-gradient(90deg, rgba(30,41,59,0.3) 1px, transparent 1px)', backgroundSize: '40px 40px' }} />
-       
+
        <div className="z-10 bg-slate-900/90 backdrop-blur-md p-10 rounded-[3rem] border border-slate-800 shadow-2xl w-full max-w-sm text-center">
-         <div className="bg-slate-950 w-24 h-24 mx-auto rounded-3xl flex items-center justify-center border border-slate-800 shadow-xl mb-8">
-            <Lock size={40} className="text-blue-500" />
-         </div>
-         <h1 className="text-2xl font-black italic text-white uppercase tracking-tighter mb-2">Identity Matrix</h1>
-         <p className="text-[9px] font-mono text-slate-500 mb-8 uppercase tracking-[0.2em]">{`Enter 4-Digit Security Authorization`}</p>
-         
-         <input 
-           type="password" 
-           placeholder="----" 
-           value={pin} 
-           onChange={e => setPin(e.target.value)} 
-           className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-6 text-center tracking-[1em] text-3xl text-white font-black mb-8 focus:outline-none focus:border-blue-500 transition-colors" 
-           maxLength={4} 
-         />
-         <button onClick={handleLogin} className="w-full bg-blue-600 text-white font-black py-5 rounded-2xl uppercase tracking-widest text-[10px] hover:bg-blue-500 shadow-lg shadow-blue-900/40 active:scale-95 transition-transform">
-           Authenticate
-         </button>
-         
-         <p className="text-[8px] font-black text-slate-600 uppercase mt-8 tracking-widest">
-           Admin: 1111 // Tech: 1234 // Service: 2222
-         </p>
+         {!showForgot ? (
+           <>
+             <div className="bg-slate-950 w-24 h-24 mx-auto rounded-3xl flex items-center justify-center border border-slate-800 shadow-xl mb-8">
+               <Lock size={40} className="text-blue-500" />
+             </div>
+             <h1 className="text-2xl font-black italic text-white uppercase tracking-tighter mb-2">Identity Matrix</h1>
+             <p className="text-[9px] font-mono text-slate-500 mb-8 uppercase tracking-[0.2em]">Enter 4-Digit Security Authorization</p>
+
+             <input
+               type="password"
+               placeholder="----"
+               value={pin}
+               onChange={e => setPin(e.target.value)}
+               onKeyDown={e => e.key === 'Enter' && handleLogin()}
+               className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-6 text-center tracking-[1em] text-3xl text-white font-black mb-6 focus:outline-none focus:border-blue-500 transition-colors"
+               maxLength={4}
+             />
+             <button onClick={handleLogin} className="w-full bg-blue-600 text-white font-black py-5 rounded-2xl uppercase tracking-widest text-[10px] hover:bg-blue-500 shadow-lg shadow-blue-900/40 active:scale-95 transition-transform">
+               Authenticate
+             </button>
+
+             <button
+               onClick={() => setShowForgot(true)}
+               className="block w-full mt-4 text-[9px] font-black text-slate-600 hover:text-orange-400 uppercase tracking-widest transition-colors"
+             >
+               Forgot PIN?
+             </button>
+
+             <p className="text-[8px] font-black text-slate-600 uppercase mt-6 tracking-widest">
+               Admin: 1111 // Tech: 1234 // Service: 2222
+             </p>
+           </>
+         ) : (
+           <ForgotPinFlow onCancel={() => setShowForgot(false)} />
+         )}
        </div>
     </div>
   );
@@ -405,9 +598,10 @@ const CoreApp = () => {
   }
 
   // JOIN FLOW: Tech/staff scan owner's QR code to join the shop
-  const joinShopId = urlParams.get('join');
+  const joinShopId   = urlParams.get('join');
+  const inviteToken  = urlParams.get('invite');
   if (joinShopId) {
-    return <JoinFlow shopId={joinShopId} />;
+    return <JoinFlow shopId={joinShopId} inviteToken={inviteToken} />;
   }
 
   if (!currentUser) {

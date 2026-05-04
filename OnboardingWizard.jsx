@@ -11,7 +11,8 @@ import { QRCodeSVG } from 'qrcode.react';
 import {
   ArrowRight, ArrowLeft, CheckCircle, DollarSign, Wrench, Database,
   TrendingDown, TrendingUp, AlertCircle, ChevronRight, Zap, Building2,
-  Phone, Mail, MapPin, FileText, Upload, User, Car, Lock, Users, QrCode
+  Phone, Mail, MapPin, FileText, Upload, User, Car, Lock, Users, QrCode,
+  Copy, Send
 } from 'lucide-react';
 import DataBridge from './DataBridge';
 import { supabase } from './supabase';
@@ -74,6 +75,7 @@ const OnboardingWizard = ({ onComplete }) => {
   const [ownerName, setOwnerName]   = useState('');
   const [shopInfoError, setShopInfoError] = useState('');
   const [finalShopId, setFinalShopId]     = useState(null);
+  const [copiedJoinUrl, setCopiedJoinUrl] = useState(false);
 
   const step = STEPS[stepIndex];
   const next = () => setStepIndex(i => Math.min(i + 1, STEPS.length - 1));
@@ -823,13 +825,32 @@ const OnboardingWizard = ({ onComplete }) => {
           </div>
         </div>
 
+        <div className="w-full flex gap-3 mb-4">
+          <button
+            onClick={() => {
+              navigator.clipboard.writeText(joinUrl);
+              setCopiedJoinUrl(true);
+              setTimeout(() => setCopiedJoinUrl(false), 2000);
+            }}
+            className="flex-1 flex items-center justify-center gap-2 bg-slate-900 border border-slate-700 text-slate-300 font-black py-3 rounded-2xl text-[10px] uppercase tracking-widest hover:bg-slate-800 transition-colors"
+          >
+            <Copy size={13} /> {copiedJoinUrl ? 'Copied!' : 'Copy Link'}
+          </button>
+          <button
+            onClick={() => window.open(`sms:?body=${encodeURIComponent('Join our shop on Ignition OS: ' + joinUrl)}`)}
+            className="flex-1 flex items-center justify-center gap-2 bg-blue-600/20 border border-blue-500/30 text-blue-400 font-black py-3 rounded-2xl text-[10px] uppercase tracking-widest hover:bg-blue-600/30 transition-colors"
+          >
+            <Send size={13} /> Send to Phone
+          </button>
+        </div>
+
         <button
           onClick={launch}
           className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-5 rounded-2xl uppercase tracking-widest text-sm transition-colors shadow-xl shadow-blue-900/40 active:scale-95 flex items-center justify-center gap-2"
         >
           Open My Dashboard <ArrowRight size={18} />
         </button>
-        <p className="text-[9px] text-slate-600 mt-4 uppercase tracking-wider">Team members can also join later from Settings</p>
+        <p className="text-[9px] text-slate-600 mt-4 uppercase tracking-wider">Team members can also join later from Admin → Team</p>
       </div>
     );
   };
