@@ -21,8 +21,9 @@ if (!isWeb) {
 }
 
 // Dynamically route API calls based on platform
-// Web apps use their current hostname (localhost). Mobile apps use your computer's local IP.
-const API_URL = isWeb ? `http://${window.location.hostname}:8000` : 'http://192.168.1.14:8000';
+const API_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL)
+  || (typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_API_URL)
+  || (isWeb ? `http://${window.location.hostname}:8000` : 'http://192.168.1.14:8000');
 
 const DataBridge = {
   // Configuration

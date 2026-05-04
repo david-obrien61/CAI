@@ -37,7 +37,7 @@ export default function IgnitionVoice({ selectedJob, onApprove }) {
         const formData = new FormData();
         formData.append('file', { uri, type: 'audio/m4a', name: 'diagnostic.m4a' });
 
-        const apiUrl = (process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000') + '/transcribe';
+        const apiUrl = ((typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) || process.env?.EXPO_PUBLIC_API_URL || 'http://localhost:8000') + '/transcribe';
         const response = await fetch(apiUrl, {
           method: 'POST',
           body: formData,
