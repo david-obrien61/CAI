@@ -217,9 +217,8 @@ const JoinFlow = ({ shopId, inviteToken }) => {
     if (inviteToken && inviteData) {
       await supabase.from('shop_invites').update({ used: true }).eq('id', inviteData.id);
     }
-    window.history.replaceState({}, '', '/');
     setPhase('done');
-    setTimeout(() => window.location.reload(), 1200);
+    setTimeout(() => { window.location.href = '/'; }, 1200);
   };
 
   if (phase === 'loading') return (
@@ -461,21 +460,104 @@ const AccessGatekeeper = ({ requiredPermissions, children }) => {
 };
 
 /**
- * UI: The PIN Login Block
+ * UI: The PIN Login Block — with biometric (Face ID / Touch ID) support
  */
 const IdentityMatrix = ({ onLogin }) => {
-  const [pin, setPin]             = useState('');
-  const [showForgot, setShowForgot] = useState(false);
+  const [pin, setPin]                   = useState('');
+  const [showForgot, setShowForgot]     = useState(false);
+  const [bioAvailable, setBioAvailable] = useState(false);
+  const [bioCredId]                     = useState(() => localStorage.getItem('bio_cred_id'));
+  const [bioError, setBioError]         = useState('');
+  const [showBioEnroll, setShowBioEnroll] = useState(false);
+  const [pendingUser, setPendingUser]   = useState(null);
+
+  useEffect(() => {
+    window.PublicKeyCredential?.isUserVerifyingPlatformAuthenticatorAvailable?.()
+      .then(ok => setBioAvailable(ok)).catch(() => {});
+  }, []);
 
   const handleLogin = () => {
-     const user = DataBridge.authenticate(pin);
-     if (user) {
-        onLogin(user);
-     } else {
-        alert("SECURITY FAULT: Invalid Identity PIN.");
-        setPin('');
-     }
+    const user = DataBridge.authenticate(pin);
+    if (!user) { alert('SECURITY FAULT: Invalid Identity PIN.'); setPin(''); return; }
+    if (bioAvailable && !bioCredId) {
+      setPendingUser(user);
+      setShowBioEnroll(true);
+    } else {
+      onLogin(user);
+    }
   };
+
+  const enrollBio = async () => {
+    try {
+      const cred = await navigator.credentials.create({
+        publicKey: {
+          challenge: crypto.getRandomValues(new Uint8Array(32)),
+          rp: { name: 'Ignition OS', id: window.location.hostname },
+          user: {
+            id: new TextEncoder().encode(pendingUser.id),
+            name: pendingUser.name,
+            displayName: pendingUser.name,
+          },
+          pubKeyCredParams: [
+            { type: 'public-key', alg: -7 },
+            { type: 'public-key', alg: -257 },
+          ],
+          authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required' },
+          timeout: 60000,
+        }
+      });
+      const credId = btoa(String.fromCharCode(...new Uint8Array(cred.rawId)));
+      localStorage.setItem('bio_cred_id', credId);
+      localStorage.setItem('bio_profile', JSON.stringify(pendingUser));
+    } catch (_) { /* user declined — still log in */ }
+    onLogin(pendingUser);
+  };
+
+  const loginWithBio = async () => {
+    setBioError('');
+    try {
+      const credIdBytes = Uint8Array.from(atob(bioCredId), c => c.charCodeAt(0));
+      await navigator.credentials.get({
+        publicKey: {
+          challenge: crypto.getRandomValues(new Uint8Array(32)),
+          rpId: window.location.hostname,
+          allowCredentials: [{ type: 'public-key', id: credIdBytes }],
+          userVerification: 'required',
+          timeout: 60000,
+        }
+      });
+      const stored = JSON.parse(localStorage.getItem('bio_profile') || 'null');
+      if (stored) { onLogin(stored); } else { setBioError('Profile not found — use PIN.'); }
+    } catch (_) { setBioError('Biometric cancelled — enter PIN.'); }
+  };
+
+  // Biometric enrollment prompt (shown once after first correct PIN)
+  if (showBioEnroll) return (
+    <div className="h-screen w-screen bg-black flex flex-col items-center justify-center p-6 relative overflow-hidden">
+      <div className="absolute inset-0" style={{ backgroundImage: 'linear-gradient(rgba(30,41,59,0.3) 1px, transparent 1px), linear-gradient(90deg, rgba(30,41,59,0.3) 1px, transparent 1px)', backgroundSize: '40px 40px' }} />
+      <div className="z-10 bg-slate-900/90 backdrop-blur-md p-10 rounded-[3rem] border border-slate-800 shadow-2xl w-full max-w-sm text-center">
+        <div className="text-6xl mb-6">🔒</div>
+        <h2 className="text-xl font-black italic text-white uppercase tracking-tighter mb-2">Enable Biometrics?</h2>
+        <p className="text-[9px] text-slate-500 mb-8 uppercase tracking-widest leading-relaxed">
+          Use Face ID or Touch ID to log in — no PIN needed on future visits.
+        </p>
+        <div className="space-y-3">
+          <button
+            onClick={enrollBio}
+            className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-5 rounded-2xl uppercase tracking-widest text-[10px] transition-colors active:scale-95 shadow-lg shadow-blue-900/40"
+          >
+            Enable Face ID / Touch ID
+          </button>
+          <button
+            onClick={() => { setShowBioEnroll(false); onLogin(pendingUser); }}
+            className="w-full text-slate-600 text-[10px] font-black uppercase tracking-wider hover:text-slate-400 transition-colors py-2"
+          >
+            Skip — use PIN every time
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <div className="h-screen w-screen bg-black flex flex-col items-center justify-center p-6 relative overflow-hidden">
@@ -488,7 +570,20 @@ const IdentityMatrix = ({ onLogin }) => {
                <Lock size={40} className="text-blue-500" />
              </div>
              <h1 className="text-2xl font-black italic text-white uppercase tracking-tighter mb-2">Identity Matrix</h1>
-             <p className="text-[9px] font-mono text-slate-500 mb-8 uppercase tracking-[0.2em]">Enter 4-Digit Security Authorization</p>
+             <p className="text-[9px] font-mono text-slate-500 mb-6 uppercase tracking-[0.2em]">Enter 4-Digit Security Authorization</p>
+
+             {bioCredId && (
+               <div className="mb-5">
+                 <button
+                   onClick={loginWithBio}
+                   className="w-full bg-slate-900 border border-slate-700 hover:border-blue-500 text-white font-black py-4 rounded-2xl uppercase tracking-widest text-[10px] transition-all active:scale-95 flex items-center justify-center gap-2"
+                 >
+                   <span className="text-lg">🔒</span> Use Face ID / Touch ID
+                 </button>
+                 {bioError && <p className="text-red-400 text-[9px] font-bold mt-2">{bioError}</p>}
+                 <p className="text-[8px] text-slate-700 mt-3 mb-3 uppercase tracking-widest">— or enter PIN —</p>
+               </div>
+             )}
 
              <input
                type="password"
@@ -576,7 +671,32 @@ const CoreApp = () => {
   // CLOUD SYNC: Pull latest jobs from Python backend on mount
   useEffect(() => {
     fetchCloudData();
-  }, []); // Empty array ensures this only fires once when the web app loads
+  }, []);
+
+  // AUTO-LOCK: idle timeout — locks screen after 10 min inactivity when enabled
+  useEffect(() => {
+    if (!currentUser) return;
+    const policy = DataBridge.load('shop_policy') || {};
+    if (!policy.autoLockEnabled) return;
+    const TIMEOUT = 10 * 60 * 1000;
+    const lock = () => { DataBridge.save('current_user', null); setCurrentUser(null); };
+    let timer = setTimeout(lock, TIMEOUT);
+    const reset = () => { clearTimeout(timer); timer = setTimeout(lock, TIMEOUT); };
+    const events = ['click', 'touchstart', 'keydown', 'scroll'];
+    events.forEach(e => document.addEventListener(e, reset, { passive: true }));
+    return () => { clearTimeout(timer); events.forEach(e => document.removeEventListener(e, reset)); };
+  }, [currentUser]);
+
+  // URL PARAMS: Parse early — join links must bypass onboarding on fresh devices
+  const urlParams   = new URLSearchParams(window.location.search);
+  const joinShopId  = urlParams.get('join');
+  const inviteToken = urlParams.get('invite');
+
+  // JOIN FLOW: Check BEFORE onboarding so a fresh device that scans QR goes to
+  // JoinFlow, not the owner's OnboardingWizard.
+  if (joinShopId) {
+    return <JoinFlow shopId={joinShopId} inviteToken={inviteToken} />;
+  }
 
   // ONBOARDING GATE: First-run wizard before anything else
   if (!onboardingDone) {
@@ -591,17 +711,9 @@ const CoreApp = () => {
   }
 
   // NATIVE ROUTING: Intercept enrollment tokens gracefully
-  const urlParams = new URLSearchParams(window.location.search);
   const enrollToken = urlParams.get('enroll');
   if (enrollToken) {
      return <EnrollmentGate token={enrollToken} />;
-  }
-
-  // JOIN FLOW: Tech/staff scan owner's QR code to join the shop
-  const joinShopId   = urlParams.get('join');
-  const inviteToken  = urlParams.get('invite');
-  if (joinShopId) {
-    return <JoinFlow shopId={joinShopId} inviteToken={inviteToken} />;
   }
 
   if (!currentUser) {
