@@ -192,31 +192,80 @@ const JoinFlow = ({ shopId, inviteToken }) => {
   const finalize = async () => {
     if (pin.length !== 4) return setError('PIN must be 4 digits.');
     if (!name.trim())     return setError('Your name is required.');
+    setError('');
     DataBridge.setShopId(shopId);
-    const profiles = DataBridge.getProfiles();
-    if (profiles[pin])    return setError('That PIN is already taken — choose another.');
-    const permissions = role === 'ADMIN' ? ['ADMIN'] : role === 'TECH' ? ['TECH'] : ['SERVICE'];
-    const newProfile = {
-      id: pin,
-      name: name.trim(),
-      role,
-      phone: phone.trim() || null,
-      allowed: role === 'TECH'
-        ? ['intake','queue','vin','voice','estimates','parts','tools']
-        : ['intake','queue','estimates','parts','procure','crm','kiosk'],
-      preferences: { pinnedSpecs: ['Model Year', 'Make', 'Model'] },
-      hasSignedWaiver: false,
-      permissions,
-    };
-    DataBridge.save('user_profiles', { ...profiles, [pin]: newProfile });
-    DataBridge.save('current_user', newProfile);
-    await supabase.from('shop_members').insert({
-      shop_id: shopId, name: newProfile.name, role: newProfile.role,
-      phone: newProfile.phone, permissions: newProfile.permissions,
-    });
+
+    const pinHash = await DataBridge.hashPin(shopId, pin);
+    let member;
+
     if (inviteToken && inviteData) {
+      // Owner pre-created the shop_members row — activate it with the PIN hash.
+      // Permissions stay exactly as the owner set them before sending the invite.
+      const { data, error } = await supabase
+        .from('shop_members')
+        .update({ pin_hash: pinHash, active: true })
+        .eq('invite_id', inviteData.id)
+        .select('*')
+        .single();
+
+      if (error || !data) return setError('Enrollment failed — please try again.');
+      member = data;
       await supabase.from('shop_invites').update({ used: true }).eq('id', inviteData.id);
+
+    } else {
+      // Generic QR join (no personal invite) — check PIN not already in use.
+      const { data: collision } = await supabase
+        .from('shop_members')
+        .select('id')
+        .eq('shop_id', shopId)
+        .eq('pin_hash', pinHash)
+        .maybeSingle();
+
+      if (collision) return setError('That PIN is already taken — choose another.');
+
+      const defaultPerms = role === 'TECH'
+        ? ['view_hub','view_flux','view_cipher','view_stok','scan_parts','update_flux']
+        : role === 'SERVICE'
+        ? ['view_port','view_crm','view_cipher','view_stok','sign_estimates']
+        : [];
+
+      const { data, error } = await supabase
+        .from('shop_members')
+        .insert({
+          shop_id:     shopId,
+          name:        name.trim().toUpperCase(),
+          role:        role || 'TECH',
+          phone:       phone.trim() || null,
+          pin_hash:    pinHash,
+          active:      true,
+          permissions: defaultPerms,
+        })
+        .select('*')
+        .single();
+
+      if (error || !data) return setError('Failed to create profile — please try again.');
+      member = data;
     }
+
+    // Register this browser as a member device automatically.
+    await DataBridge.autoEnrollDevice(member.id, shopId);
+
+    // Build the session from the live Supabase record — source of truth.
+    const session = {
+      id:          member.id,
+      member_id:   member.id,
+      shop_id:     shopId,
+      name:        member.name,
+      role:        member.role,
+      sub_role:    member.sub_role || null,
+      permissions: member.permissions || [],
+      allowed: (member.permissions || [])
+        .filter(p => p.startsWith('view_'))
+        .map(p => p.replace('view_', '')),
+      cached_at:   new Date().toISOString(),
+    };
+    DataBridge.save('current_user', session);
+
     setPhase('done');
     setTimeout(() => { window.location.href = '/'; }, 1200);
   };
@@ -464,6 +513,8 @@ const AccessGatekeeper = ({ requiredPermissions, children }) => {
  */
 const IdentityMatrix = ({ onLogin }) => {
   const [pin, setPin]                   = useState('');
+  const [loginError, setLoginError]     = useState('');
+  const [loading, setLoading]           = useState(false);
   const [showForgot, setShowForgot]     = useState(false);
   const [bioAvailable, setBioAvailable] = useState(false);
   const [bioCredId]                     = useState(() => localStorage.getItem('bio_cred_id'));
@@ -476,9 +527,13 @@ const IdentityMatrix = ({ onLogin }) => {
       .then(ok => setBioAvailable(ok)).catch(() => {});
   }, []);
 
-  const handleLogin = () => {
-    const user = DataBridge.authenticate(pin);
-    if (!user) { alert('SECURITY FAULT: Invalid Identity PIN.'); setPin(''); return; }
+  const handleLogin = async () => {
+    if (pin.length !== 4) return;
+    setLoading(true);
+    setLoginError('');
+    const user = await DataBridge.authenticate(pin);
+    setLoading(false);
+    if (!user) { setLoginError('Invalid PIN — try again.'); setPin(''); return; }
     if (bioAvailable && !bioCredId) {
       setPendingUser(user);
       setShowBioEnroll(true);
@@ -508,7 +563,7 @@ const IdentityMatrix = ({ onLogin }) => {
       });
       const credId = btoa(String.fromCharCode(...new Uint8Array(cred.rawId)));
       localStorage.setItem('bio_cred_id', credId);
-      localStorage.setItem('bio_profile', JSON.stringify(pendingUser));
+      localStorage.setItem('bio_member_id', pendingUser.member_id || pendingUser.id);
     } catch (_) { /* user declined — still log in */ }
     onLogin(pendingUser);
   };
@@ -526,8 +581,21 @@ const IdentityMatrix = ({ onLogin }) => {
           timeout: 60000,
         }
       });
-      const stored = JSON.parse(localStorage.getItem('bio_profile') || 'null');
-      if (stored) { onLogin(stored); } else { setBioError('Profile not found — use PIN.'); }
+      const storedId = localStorage.getItem('bio_member_id');
+      if (!storedId) { setBioError('Profile not found — use PIN.'); return; }
+      const { data: member } = await supabase
+        .from('shop_members').select('*').eq('id', storedId).single();
+      if (!member) { setBioError('Profile not found — use PIN.'); return; }
+      await DataBridge.autoEnrollDevice(member.id, member.shop_id);
+      const session = {
+        id: member.id, member_id: member.id, shop_id: member.shop_id,
+        name: member.name, role: member.role, sub_role: member.sub_role || null,
+        permissions: member.permissions || [],
+        allowed: (member.permissions || []).filter(p => p.startsWith('view_')).map(p => p.replace('view_', '')),
+        cached_at: new Date().toISOString(),
+      };
+      DataBridge.save('current_user', session);
+      onLogin(session);
     } catch (_) { setBioError('Biometric cancelled — enter PIN.'); }
   };
 
@@ -589,13 +657,21 @@ const IdentityMatrix = ({ onLogin }) => {
                type="password"
                placeholder="----"
                value={pin}
-               onChange={e => setPin(e.target.value)}
+               onChange={e => { setPin(e.target.value.replace(/\D/g, '').slice(0, 4)); setLoginError(''); }}
                onKeyDown={e => e.key === 'Enter' && handleLogin()}
-               className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-6 text-center tracking-[1em] text-3xl text-white font-black mb-6 focus:outline-none focus:border-blue-500 transition-colors"
+               className={`w-full bg-slate-950 border rounded-2xl p-6 text-center tracking-[1em] text-3xl text-white font-black mb-2 focus:outline-none transition-colors ${loginError ? 'border-red-500' : 'border-slate-800 focus:border-blue-500'}`}
                maxLength={4}
              />
-             <button onClick={handleLogin} className="w-full bg-blue-600 text-white font-black py-5 rounded-2xl uppercase tracking-widest text-[10px] hover:bg-blue-500 shadow-lg shadow-blue-900/40 active:scale-95 transition-transform">
-               Authenticate
+             {loginError && (
+               <p className="text-red-400 text-[10px] font-black uppercase tracking-widest mb-4">{loginError}</p>
+             )}
+             {!loginError && <div className="mb-4" />}
+             <button
+               onClick={handleLogin}
+               disabled={pin.length !== 4 || loading}
+               className="w-full bg-blue-600 text-white font-black py-5 rounded-2xl uppercase tracking-widest text-[10px] hover:bg-blue-500 disabled:opacity-50 shadow-lg shadow-blue-900/40 active:scale-95 transition-all"
+             >
+               {loading ? 'Verifying...' : 'Authenticate'}
              </button>
 
              <button
@@ -604,10 +680,6 @@ const IdentityMatrix = ({ onLogin }) => {
              >
                Forgot PIN?
              </button>
-
-             <p className="text-[8px] font-black text-slate-600 uppercase mt-6 tracking-widest">
-               Admin: 1111 // Tech: 1234 // Service: 2222
-             </p>
            </>
          ) : (
            <ForgotPinFlow onCancel={() => setShowForgot(false)} />

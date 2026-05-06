@@ -665,6 +665,103 @@ const DataBridge = {
     };
   },
 
+  // ── PIN Auth (Supabase-based, cross-device) ──────────────────────────────────
+
+  /**
+   * Hash a PIN for storage and lookup.
+   * Uses SHA-256 salted with shopId so the same PIN at two shops produces
+   * different hashes — prevents cross-shop collisions.
+   */
+  hashPin: async (shopId, pin) => {
+    const raw = new TextEncoder().encode(`${shopId}:${pin}`);
+    const buf = await crypto.subtle.digest('SHA-256', raw);
+    return Array.from(new Uint8Array(buf))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
+  },
+
+  /**
+   * Register (or update last_seen on) the current browser as a member_devices row.
+   * Called automatically on every successful login so the admin's Devices tab
+   * populates without any manual step from the tech.
+   */
+  autoEnrollDevice: async (memberId, shopId) => {
+    if (!isWeb) return;
+    let fingerprint = localStorage.getItem('device_fingerprint');
+    if (!fingerprint) {
+      fingerprint = crypto.randomUUID();
+      localStorage.setItem('device_fingerprint', fingerprint);
+    }
+    const { data: existing } = await supabase
+      .from('member_devices')
+      .select('id')
+      .eq('member_id', memberId)
+      .eq('device_fingerprint', fingerprint)
+      .maybeSingle();
+
+    const now = new Date().toISOString();
+    if (!existing) {
+      const ua = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
+      const label = ua.includes('iPhone') ? 'iPhone'
+        : ua.includes('iPad')    ? 'iPad'
+        : ua.includes('Android') ? 'Android Device'
+        : ua.includes('Mac')     ? 'Mac'
+        : 'Browser';
+      await supabase.from('member_devices').insert({
+        member_id:          memberId,
+        shop_id:            shopId,
+        device_fingerprint: fingerprint,
+        device_label:       label,
+        is_active:          true,
+        last_seen:          now,
+      });
+    } else {
+      await supabase.from('member_devices')
+        .update({ last_seen: now })
+        .eq('id', existing.id);
+    }
+  },
+
+  /**
+   * Verify a PIN against Supabase shop_members.pin_hash.
+   * Returns the member session on success, null on failure.
+   * Async — must be awaited everywhere it is called.
+   */
+  authenticate: async (pin) => {
+    const shopId = DataBridge.getShopId();
+    if (!shopId) return null;
+
+    const pinHash = await DataBridge.hashPin(shopId, pin);
+
+    const { data: member } = await supabase
+      .from('shop_members')
+      .select('*')
+      .eq('shop_id', shopId)
+      .eq('pin_hash', pinHash)
+      .eq('active', true)
+      .maybeSingle();
+
+    if (!member) return null;
+
+    await DataBridge.autoEnrollDevice(member.id, shopId);
+
+    const session = {
+      id:          member.id,
+      member_id:   member.id,
+      shop_id:     shopId,
+      name:        member.name,
+      role:        member.role,
+      sub_role:    member.sub_role || null,
+      permissions: member.permissions || [],
+      allowed: (member.permissions || [])
+        .filter(p => p.startsWith('view_'))
+        .map(p => p.replace('view_', '')),
+      cached_at: new Date().toISOString(),
+    };
+    DataBridge.save('current_user', session);
+    return session;
+  },
+
   /**
    * SECURITY & LABOR REGISTRY
    */
@@ -680,18 +777,8 @@ const DataBridge = {
     };
   },
 
-  authenticate: (pin) => {
-    const profiles = DataBridge.getProfiles();
-    if (profiles[pin]) {
-      const user = { ...profiles[pin], pin };
-      DataBridge.save('current_user', user);
-      return user;
-    }
-    return null;
-  },
-  
   logout: () => {
-      DataBridge.save('current_user', null);
+    DataBridge.save('current_user', null);
   },
 
   getSystemRates: () => {
@@ -735,7 +822,6 @@ const DataBridge = {
 
   setMarginMatrix: (matrix, adminId) => {
     const config = DataBridge.load('system_config') || {};
-    const old = config.marginMatrix || {};
     config.marginMatrix = matrix;
     DataBridge.save('system_config', config);
     const ledger = DataBridge.load('admin_audit_log') || [];
