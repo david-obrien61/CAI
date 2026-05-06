@@ -1025,199 +1025,89 @@ const EditPermissionsModal = ({ user, onClose, onSaved }) => {
   );
 };
 
-// ─── TAB 1: STAFF ─────────────────────────────────────────────────────────────
+// ─── REVOKE MEMBER MODAL (Supabase) ──────────────────────────────────────────
 
-const StaffTab = () => {
-  const [profiles, setProfiles] = useState(() => DataBridge.getProfiles());
-  const [showAdd, setShowAdd] = useState(false);
-  const [revokeTarget, setRevokeTarget] = useState(null);
-  const [editTarget, setEditTarget] = useState(null);
-  const [expandedId, setExpandedId] = useState(null);
+const RevokeMemberModal = ({ member, onClose, onRevoked }) => {
+  const [confirm, setConfirm] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const ready = confirm === 'REVOKE';
 
-  const currentUser = DataBridge.load('current_user');
-  const users = Object.entries(profiles).map(([pin, p]) => ({ ...p, id: p.id || pin }));
-
-  const refresh = () => setProfiles(DataBridge.getProfiles());
+  const revoke = async () => {
+    if (!ready) return;
+    setLoading(true);
+    const { error: err } = await supabase.from('shop_members').delete().eq('id', member.id);
+    if (err) { setError('Failed to revoke. Check connection.'); setLoading(false); return; }
+    if (member.invite_id) {
+      await supabase.from('shop_invites').update({ used: true }).eq('id', member.invite_id);
+    }
+    setLoading(false);
+    onRevoked();
+    onClose();
+  };
 
   return (
-    <div className="space-y-4">
-      <div className="flex justify-between items-center">
-        <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest">{users.length} registered identities</p>
-        <button
-          onClick={() => setShowAdd(true)}
-          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-black px-5 py-3 rounded-xl text-[10px] uppercase tracking-widest transition-colors"
-        >
-          <Plus size={13} /> Add Staff
-        </button>
-      </div>
-
-      <div className="space-y-3">
-        {users.map(user => {
-          const isOpen = expandedId === user.id;
-          const isSelf = currentUser?.id === user.id;
-
-          return (
-            <div key={user.id} className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden hover:border-slate-700 transition-colors">
-              <div
-                className="flex items-center gap-4 px-5 py-4 cursor-pointer"
-                onClick={() => setExpandedId(isOpen ? null : user.id)}
-              >
-                {/* Avatar */}
-                <div className="w-10 h-10 rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center flex-shrink-0">
-                  <span className="text-[10px] font-black text-slate-400 uppercase">
-                    {user.name?.split(' ').map(n => n[0]).join('').slice(0, 2)}
-                  </span>
-                </div>
-
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <p className="text-sm font-black text-white uppercase tracking-tight">{user.name}</p>
-                    <Badge label={user.role || 'STAFF'} color={roleColor(user.role)} />
-                    {isSelf && <Badge label="You" color="emerald" />}
-                    <span className="text-[8px] font-mono text-slate-700">PIN: ****</span>
-                  </div>
-                  <p className="text-[9px] text-slate-600 mt-0.5">
-                    {(user.permissions || []).length} permissions · {(user.allowed || []).length} modules
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setEditTarget(user); }}
-                    className="p-2 bg-slate-800 rounded-lg text-slate-500 hover:text-blue-400 transition-colors"
-                    title="Edit permissions"
-                  >
-                    <Edit3 size={13} />
-                  </button>
-                  {!isSelf && (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setRevokeTarget(user); }}
-                      className="p-2 bg-slate-800 rounded-lg text-slate-500 hover:text-red-400 transition-colors"
-                      title="Revoke access"
-                    >
-                      <UserMinus size={13} />
-                    </button>
-                  )}
-                  {isOpen ? <ChevronUp size={13} className="text-slate-600" /> : <ChevronDown size={13} className="text-slate-600" />}
-                </div>
-              </div>
-
-              {isOpen && (
-                <div className="px-5 pb-5 border-t border-slate-800 pt-4">
-                  <p className="text-[8px] font-black text-slate-700 uppercase tracking-widest mb-2">Active Permissions</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {(user.permissions || []).map(p => {
-                      const meta = ALL_PERMISSIONS.find(a => a.id === p);
-                      return (
-                        <span key={p} className="text-[8px] font-black bg-slate-800 border border-slate-700 text-slate-400 px-2 py-1 rounded-lg uppercase">
-                          {meta?.label || p}
-                        </span>
-                      );
-                    })}
-                    {(!user.permissions || user.permissions.length === 0) && (
-                      <span className="text-[9px] text-slate-700 italic">No permissions assigned</span>
-                    )}
-                  </div>
-                </div>
-              )}
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+      <div className="bg-slate-950 border border-red-500/30 rounded-[2rem] shadow-2xl w-full max-w-sm">
+        <div className="p-6 text-center">
+          <UserMinus size={40} className="text-red-500 mx-auto mb-4" />
+          <h3 className="text-sm font-black text-white uppercase tracking-widest mb-1">Revoke Access</h3>
+          <p className="text-[10px] text-slate-400 mb-6">
+            This permanently removes <span className="text-white font-black">{member.name}</span> from the shop. All enrolled devices will lose access immediately.
+          </p>
+          {error && (
+            <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3 mb-4">
+              <AlertTriangle size={13} className="text-red-400" />
+              <p className="text-[10px] font-black text-red-400">{error}</p>
             </div>
-          );
-        })}
+          )}
+          <div className="mb-5">
+            <p className="text-[9px] text-slate-500 uppercase tracking-widest mb-2">Type <span className="text-red-400 font-black">REVOKE</span> to confirm</p>
+            <input
+              value={confirm}
+              onChange={e => setConfirm(e.target.value.toUpperCase())}
+              placeholder="REVOKE"
+              className="w-full bg-black border border-slate-800 rounded-xl px-4 py-3 text-white font-black text-center focus:outline-none focus:border-red-500 transition-colors tracking-widest uppercase"
+            />
+          </div>
+          <div className="flex gap-3">
+            <button onClick={onClose} className="flex-1 bg-slate-900 border border-slate-700 text-slate-300 font-black py-3 rounded-xl text-[10px] uppercase tracking-widest hover:bg-slate-800 transition-colors">
+              Cancel
+            </button>
+            <button
+              onClick={revoke}
+              disabled={!ready || loading}
+              className="flex-1 bg-red-600 hover:bg-red-500 disabled:opacity-30 disabled:cursor-not-allowed text-white font-black py-3 rounded-xl text-[10px] uppercase tracking-widest transition-colors flex items-center justify-center gap-2"
+            >
+              <UserMinus size={13} /> {loading ? 'Revoking...' : 'Revoke'}
+            </button>
+          </div>
+        </div>
       </div>
-
-      {showAdd && (
-        <AddStaffModal
-          onClose={() => setShowAdd(false)}
-          onSaved={() => refresh()}
-        />
-      )}
-      {revokeTarget && (
-        <RevokeModal
-          user={revokeTarget}
-          onClose={() => setRevokeTarget(null)}
-          onRevoked={() => { setRevokeTarget(null); refresh(); }}
-        />
-      )}
-      {editTarget && (
-        <EditPermissionsModal
-          user={editTarget}
-          onClose={() => setEditTarget(null)}
-          onSaved={() => { setEditTarget(null); refresh(); }}
-        />
-      )}
     </div>
   );
 };
 
-// ─── TAB: TEAM ────────────────────────────────────────────────────────────────
+// ─── TAB 1: STAFF ─────────────────────────────────────────────────────────────
 
-const MemberCard = ({ member, onManage, onReset, resetting }) => (
-  <div className="bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 flex items-center gap-4 hover:border-slate-700 transition-colors">
-    <div className="w-10 h-10 rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center flex-shrink-0">
-      <span className="text-[10px] font-black text-slate-400 uppercase">
-        {member.name?.split(' ').map(n => n[0]).join('').slice(0, 2)}
-      </span>
-    </div>
-    <div className="flex-1 min-w-0">
-      <div className="flex items-center gap-2 flex-wrap">
-        <p className="text-sm font-black text-white uppercase">{member.name}</p>
-        <Badge label={member.role} color={roleColor(member.role)} />
-        {member.sub_role && <Badge label={member.sub_role.replace(/_/g, ' ')} color="slate" />}
-        {!member.active && <Badge label="Pending" color="orange" />}
-      </div>
-      {member.phone && (
-        <p className="text-[9px] text-slate-600 mt-0.5 flex items-center gap-1">
-          <Phone size={9} /> {member.phone}
-        </p>
-      )}
-    </div>
-    <div className="flex items-center gap-2 flex-shrink-0">
-      <button
-        onClick={() => onManage(member)}
-        className="flex items-center gap-1.5 bg-slate-800 hover:bg-blue-600/20 border border-slate-700 hover:border-blue-500/40 text-slate-400 hover:text-blue-400 font-black px-3 py-2 rounded-xl text-[9px] uppercase tracking-wider transition-all"
-        title="Manage member"
-      >
-        <Edit3 size={11} /> Manage
-      </button>
-      {member.active && (
-        <button
-          onClick={() => onReset(member)}
-          disabled={resetting === member.id}
-          className="flex items-center gap-1.5 bg-slate-800 hover:bg-orange-600/20 border border-slate-700 hover:border-orange-500/40 text-slate-400 hover:text-orange-400 font-black px-3 py-2 rounded-xl text-[9px] uppercase tracking-wider transition-all disabled:opacity-50"
-          title="Generate PIN reset code"
-        >
-          <KeyRound size={11} />
-          {resetting === member.id ? '...' : 'Reset PIN'}
-        </button>
-      )}
-    </div>
-  </div>
-);
-
-const TeamTab = () => {
+const StaffTab = () => {
   const shopId = DataBridge.load('shop_info')?.id || DataBridge.load('shop_policy')?.shop_id;
-  const joinUrl = shopId ? `${window.location.origin}/?join=${shopId}` : '';
-
-  const [teams, setTeams]               = useState([]);
   const [members, setMembers]           = useState([]);
   const [pendingInvites, setPendingInvites] = useState([]);
   const [loading, setLoading]           = useState(true);
   const [showInvite, setShowInvite]     = useState(false);
-  const [showCreateTeam, setShowCreateTeam] = useState(false);
   const [manageTarget, setManageTarget] = useState(null);
+  const [revokeTarget, setRevokeTarget] = useState(null);
   const [resetCodeData, setResetCodeData] = useState(null);
   const [generatingReset, setGeneratingReset] = useState(null);
-  const [copied, setCopied]             = useState(false);
 
   const refresh = async () => {
     if (!shopId) { setLoading(false); return; }
     setLoading(true);
-    const [teamsRes, membersRes, invitesRes] = await Promise.all([
-      supabase.from('teams').select('*').eq('shop_id', shopId).order('name'),
+    const [membersRes, invitesRes] = await Promise.all([
       supabase.from('shop_members').select('*').eq('shop_id', shopId).order('joined_at', { ascending: false }),
       supabase.from('shop_invites').select('*').eq('shop_id', shopId).eq('used', false).order('created_at', { ascending: false }),
     ]);
-    setTeams(teamsRes.data || []);
     setMembers(membersRes.data || []);
     setPendingInvites(invitesRes.data || []);
     setLoading(false);
@@ -1247,13 +1137,211 @@ const TeamTab = () => {
     setPendingInvites(inv => inv.filter(i => i.id !== inviteId));
   };
 
+  const activeCount  = members.filter(m => m.active).length;
+  const pendingCount = members.filter(m => !m.active).length;
+
+  return (
+    <div className="space-y-6">
+      {/* Toolbar */}
+      <div className="flex justify-between items-center">
+        <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+          {loading ? '...' : `${activeCount} Active · ${pendingCount} Pending`}
+        </p>
+        <div className="flex gap-2">
+          <button onClick={refresh} className="p-2 bg-slate-900 border border-slate-800 rounded-lg text-slate-500 hover:text-white transition-colors" title="Refresh">
+            <RefreshCw size={12} />
+          </button>
+          <button
+            onClick={() => setShowInvite(true)}
+            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-black px-4 py-2 rounded-xl text-[9px] uppercase tracking-widest transition-colors"
+          >
+            <Plus size={12} /> Invite Staff
+          </button>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-8 text-slate-600 text-[10px] uppercase tracking-wider animate-pulse">Loading staff...</div>
+      ) : members.length === 0 ? (
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center">
+          <Users size={32} className="text-slate-700 mx-auto mb-3" />
+          <p className="text-[10px] text-slate-600 uppercase tracking-wider">No staff members yet</p>
+          <p className="text-[9px] text-slate-700 mt-1">Invite a team member to get started</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {members.map(m => (
+            <MemberCard
+              key={m.id}
+              member={m}
+              onManage={setManageTarget}
+              onReset={generateReset}
+              onRevoke={setRevokeTarget}
+              resetting={generatingReset}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Pending Invites — not yet enrolled */}
+      {pendingInvites.length > 0 && (
+        <div>
+          <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3">
+            {pendingInvites.length} Pending Invite{pendingInvites.length !== 1 ? 's' : ''}
+          </p>
+          <div className="space-y-2">
+            {pendingInvites.map(invite => (
+              <div key={invite.id} className="bg-slate-900 border border-slate-800/80 rounded-2xl px-5 py-3 flex items-center gap-4">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-sm font-black text-white uppercase">{invite.name}</p>
+                    <Badge label={invite.role} color={roleColor(invite.role)} />
+                    <Badge label="Awaiting Enrollment" color="orange" />
+                  </div>
+                  {invite.phone && <p className="text-[9px] text-slate-600 mt-0.5">{invite.phone}</p>}
+                </div>
+                <button onClick={() => revokeInvite(invite.id)} className="text-slate-600 hover:text-red-400 transition-colors p-2" title="Cancel invite">
+                  <X size={13} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Modals */}
+      {showInvite && <InviteStaffModal onClose={() => { setShowInvite(false); refresh(); }} />}
+      {manageTarget && (
+        <ManageMemberModal
+          member={manageTarget}
+          shopId={shopId}
+          onClose={() => setManageTarget(null)}
+          onSaved={() => { setManageTarget(null); refresh(); }}
+        />
+      )}
+      {revokeTarget && (
+        <RevokeMemberModal
+          member={revokeTarget}
+          onClose={() => setRevokeTarget(null)}
+          onRevoked={() => { setRevokeTarget(null); refresh(); }}
+        />
+      )}
+
+      {/* PIN Reset Code display */}
+      {resetCodeData && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+          <div className="bg-slate-950 border border-orange-500/30 rounded-[2rem] shadow-2xl w-full max-w-sm">
+            <div className="p-8 text-center">
+              <div className="w-16 h-16 bg-orange-500/10 border border-orange-500/30 rounded-2xl flex items-center justify-center mx-auto mb-5">
+                <KeyRound size={28} className="text-orange-400" />
+              </div>
+              <p className="text-[10px] font-black text-orange-400 uppercase tracking-widest mb-1">PIN Reset Code</p>
+              <p className="text-[9px] text-slate-500 mb-6">
+                Read this code aloud to <span className="text-white font-black">{resetCodeData.name}</span>.<br />
+                Valid for 15 minutes · Single use.
+              </p>
+              <div className="bg-black border border-orange-500/20 rounded-2xl py-6 mb-5">
+                <p className="text-5xl font-black text-orange-400 tracking-[0.3em]">{resetCodeData.code}</p>
+              </div>
+              <p className="text-[9px] text-slate-600 mb-6">They'll enter this on the "Forgot PIN" screen to set a new PIN.</p>
+              <button onClick={() => setResetCodeData(null)} className="w-full bg-slate-900 border border-slate-700 text-slate-300 font-black py-3 rounded-xl text-[10px] uppercase tracking-widest hover:bg-slate-800 transition-colors">
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─── TAB: TEAM ────────────────────────────────────────────────────────────────
+
+const MemberCard = ({ member, onManage, onReset, onRevoke, resetting }) => (
+  <div className="bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 flex items-center gap-4 hover:border-slate-700 transition-colors">
+    <div className="w-10 h-10 rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center flex-shrink-0">
+      <span className="text-[10px] font-black text-slate-400 uppercase">
+        {member.name?.split(' ').map(n => n[0]).join('').slice(0, 2)}
+      </span>
+    </div>
+    <div className="flex-1 min-w-0">
+      <div className="flex items-center gap-2 flex-wrap">
+        <p className="text-sm font-black text-white uppercase">{member.name}</p>
+        <Badge label={member.role} color={roleColor(member.role)} />
+        {member.sub_role && <Badge label={member.sub_role.replace(/_/g, ' ')} color="slate" />}
+        {!member.active && <Badge label="Pending" color="orange" />}
+      </div>
+      {member.phone && (
+        <p className="text-[9px] text-slate-600 mt-0.5 flex items-center gap-1">
+          <Phone size={9} /> {member.phone}
+        </p>
+      )}
+    </div>
+    <div className="flex items-center gap-2 flex-shrink-0">
+      {onManage && (
+        <button
+          onClick={() => onManage(member)}
+          className="flex items-center gap-1.5 bg-slate-800 hover:bg-blue-600/20 border border-slate-700 hover:border-blue-500/40 text-slate-400 hover:text-blue-400 font-black px-3 py-2 rounded-xl text-[9px] uppercase tracking-wider transition-all"
+          title="Manage member"
+        >
+          <Edit3 size={11} /> Manage
+        </button>
+      )}
+      {onReset && member.active && (
+        <button
+          onClick={() => onReset(member)}
+          disabled={resetting === member.id}
+          className="flex items-center gap-1.5 bg-slate-800 hover:bg-orange-600/20 border border-slate-700 hover:border-orange-500/40 text-slate-400 hover:text-orange-400 font-black px-3 py-2 rounded-xl text-[9px] uppercase tracking-wider transition-all disabled:opacity-50"
+          title="Generate PIN reset code"
+        >
+          <KeyRound size={11} />
+          {resetting === member.id ? '...' : 'Reset PIN'}
+        </button>
+      )}
+      {onRevoke && (
+        <button
+          onClick={() => onRevoke(member)}
+          className="p-2 bg-slate-800 hover:bg-red-600/20 border border-slate-700 hover:border-red-500/40 text-slate-500 hover:text-red-400 rounded-xl transition-all"
+          title="Revoke access"
+        >
+          <UserMinus size={13} />
+        </button>
+      )}
+    </div>
+  </div>
+);
+
+const TeamTab = () => {
+  const shopId = DataBridge.load('shop_info')?.id || DataBridge.load('shop_policy')?.shop_id;
+  const joinUrl = shopId ? `${window.location.origin}/?join=${shopId}` : '';
+
+  const [teams, setTeams]           = useState([]);
+  const [members, setMembers]       = useState([]);
+  const [loading, setLoading]       = useState(true);
+  const [showCreateTeam, setShowCreateTeam] = useState(false);
+  const [showInvite, setShowInvite] = useState(false);
+  const [copied, setCopied]         = useState(false);
+
+  const refresh = async () => {
+    if (!shopId) { setLoading(false); return; }
+    setLoading(true);
+    const [teamsRes, membersRes] = await Promise.all([
+      supabase.from('teams').select('*').eq('shop_id', shopId).order('name'),
+      supabase.from('shop_members').select('*').eq('shop_id', shopId).order('joined_at', { ascending: false }),
+    ]);
+    setTeams(teamsRes.data || []);
+    setMembers(membersRes.data || []);
+    setLoading(false);
+  };
+
+  useEffect(() => { refresh(); }, [shopId]);
+
   const copyLink = () => {
     navigator.clipboard.writeText(joinUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // Group members: by team, then unassigned
   const membersByTeam = teams.map(team => ({
     team,
     members: members.filter(m => m.team_id === team.id),
@@ -1304,17 +1392,21 @@ const TeamTab = () => {
         </div>
       </div>
 
+      {/* Helper hint */}
+      <div className="flex items-center gap-2 bg-slate-900/60 border border-slate-800/60 rounded-xl px-4 py-2.5">
+        <p className="text-[9px] text-slate-600">Team view shows grouping only. Go to <span className="text-slate-400 font-black">Staff</span> tab to manage members, change permissions, or reset PINs.</p>
+      </div>
+
       {loading ? (
-        <div className="text-center py-8 text-slate-600 text-[10px] uppercase tracking-wider animate-pulse">Loading team...</div>
+        <div className="text-center py-8 text-slate-600 text-[10px] uppercase tracking-wider animate-pulse">Loading teams...</div>
       ) : members.length === 0 && teams.length === 0 ? (
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center">
           <Users size={32} className="text-slate-700 mx-auto mb-3" />
-          <p className="text-[10px] text-slate-600 uppercase tracking-wider">No team members yet</p>
+          <p className="text-[10px] text-slate-600 uppercase tracking-wider">No teams yet</p>
           <p className="text-[9px] text-slate-700 mt-1">Create a team then invite members, or invite directly</p>
         </div>
       ) : (
         <div className="space-y-6">
-          {/* Members grouped by team */}
           {membersByTeam.map(({ team, members: teamMembers }) => (
             <div key={team.id}>
               <div className="flex items-center gap-3 mb-3">
@@ -1327,14 +1419,13 @@ const TeamTab = () => {
               ) : (
                 <div className="space-y-2">
                   {teamMembers.map(m => (
-                    <MemberCard key={m.id} member={m} onManage={setManageTarget} onReset={generateReset} resetting={generatingReset} />
+                    <MemberCard key={m.id} member={m} />
                   ))}
                 </div>
               )}
             </div>
           ))}
 
-          {/* Unassigned members */}
           {unassigned.length > 0 && (
             <div>
               <div className="flex items-center gap-3 mb-3">
@@ -1344,7 +1435,7 @@ const TeamTab = () => {
               </div>
               <div className="space-y-2">
                 {unassigned.map(m => (
-                  <MemberCard key={m.id} member={m} onManage={setManageTarget} onReset={generateReset} resetting={generatingReset} />
+                  <MemberCard key={m.id} member={m} />
                 ))}
               </div>
             </div>
@@ -1352,68 +1443,9 @@ const TeamTab = () => {
         </div>
       )}
 
-      {/* Pending Invites */}
-      {pendingInvites.length > 0 && (
-        <div>
-          <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3">
-            {pendingInvites.length} Pending Invite{pendingInvites.length !== 1 ? 's' : ''}
-          </p>
-          <div className="space-y-2">
-            {pendingInvites.map(invite => (
-              <div key={invite.id} className="bg-slate-900 border border-slate-800/80 rounded-2xl px-5 py-3 flex items-center gap-4">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <p className="text-sm font-black text-white uppercase">{invite.name}</p>
-                    <Badge label={invite.role} color={roleColor(invite.role)} />
-                    <Badge label="Awaiting Enrollment" color="orange" />
-                  </div>
-                  {invite.phone && <p className="text-[9px] text-slate-600">{invite.phone}</p>}
-                </div>
-                <button onClick={() => revokeInvite(invite.id)} className="text-slate-600 hover:text-red-400 transition-colors p-2" title="Revoke invite">
-                  <X size={13} />
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* Modals */}
-      {showInvite      && <InviteStaffModal onClose={() => { setShowInvite(false); refresh(); }} />}
-      {showCreateTeam  && <CreateTeamModal shopId={shopId} onClose={() => setShowCreateTeam(false)} onCreated={refresh} />}
-      {manageTarget    && (
-        <ManageMemberModal
-          member={manageTarget}
-          shopId={shopId}
-          onClose={() => setManageTarget(null)}
-          onSaved={() => { setManageTarget(null); refresh(); }}
-        />
-      )}
-
-      {/* Reset Code Modal */}
-      {resetCodeData && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-          <div className="bg-slate-950 border border-orange-500/30 rounded-[2rem] shadow-2xl w-full max-w-sm">
-            <div className="p-8 text-center">
-              <div className="w-16 h-16 bg-orange-500/10 border border-orange-500/30 rounded-2xl flex items-center justify-center mx-auto mb-5">
-                <KeyRound size={28} className="text-orange-400" />
-              </div>
-              <p className="text-[10px] font-black text-orange-400 uppercase tracking-widest mb-1">PIN Reset Code</p>
-              <p className="text-[9px] text-slate-500 mb-6">
-                Read this code aloud to <span className="text-white font-black">{resetCodeData.name}</span>.<br />
-                Valid for 15 minutes · Single use.
-              </p>
-              <div className="bg-black border border-orange-500/20 rounded-2xl py-6 mb-5">
-                <p className="text-5xl font-black text-orange-400 tracking-[0.3em]">{resetCodeData.code}</p>
-              </div>
-              <p className="text-[9px] text-slate-600 mb-6">They'll enter this on the "Forgot PIN" screen to set a new PIN.</p>
-              <button onClick={() => setResetCodeData(null)} className="w-full bg-slate-900 border border-slate-700 text-slate-300 font-black py-3 rounded-xl text-[10px] uppercase tracking-widest hover:bg-slate-800 transition-colors">
-                Done
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {showCreateTeam && <CreateTeamModal shopId={shopId} onClose={() => setShowCreateTeam(false)} onCreated={refresh} />}
+      {showInvite     && <InviteStaffModal onClose={() => { setShowInvite(false); refresh(); }} />}
     </div>
   );
 };
