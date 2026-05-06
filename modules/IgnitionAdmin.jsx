@@ -163,8 +163,8 @@ const AddStaffModal = ({ onClose, onSaved }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-      <div className="bg-slate-950 border border-slate-800 rounded-[2rem] shadow-2xl w-full max-w-lg max-h-[85dvh] overflow-y-auto">
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+      <div className="bg-slate-950 border border-slate-800 rounded-[2rem] shadow-2xl w-full max-w-lg max-h-[80dvh] overflow-y-auto">
         <div className="flex items-center justify-between p-6 border-b border-slate-800">
           <h3 className="text-sm font-black text-white uppercase tracking-widest">Add Staff Member</h3>
           <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors"><X size={18} /></button>
@@ -358,8 +358,8 @@ const InviteStaffModal = ({ onClose }) => {
   const subRoles = SUB_ROLES[form.role] || [];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-      <div className="bg-slate-950 border border-slate-800 rounded-[2rem] shadow-2xl w-full max-w-lg max-h-[88dvh] flex flex-col overflow-hidden">
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+      <div className="bg-slate-950 border border-slate-800 rounded-[2rem] shadow-2xl w-full max-w-lg max-h-[80dvh] flex flex-col overflow-hidden">
         <div className="flex items-center justify-between p-6 border-b border-slate-800 flex-shrink-0">
           <h3 className="text-sm font-black text-white uppercase tracking-widest">Invite Staff Member</h3>
           <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors"><X size={18} /></button>
@@ -534,7 +534,7 @@ const CreateTeamModal = ({ shopId, onClose, onCreated }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
       <div className="bg-slate-950 border border-slate-800 rounded-[2rem] shadow-2xl w-full max-w-sm">
         <div className="flex items-center justify-between p-6 border-b border-slate-800">
           <h3 className="text-sm font-black text-white uppercase tracking-widest">Create Team</h3>
@@ -655,8 +655,8 @@ const ManageMemberModal = ({ member, shopId, onClose, onSaved }) => {
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-      <div className="bg-slate-950 border border-slate-800 rounded-[2rem] shadow-2xl w-full max-w-lg max-h-[88dvh] flex flex-col overflow-hidden">
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+      <div className="bg-slate-950 border border-slate-800 rounded-[2rem] shadow-2xl w-full max-w-lg max-h-[80dvh] flex flex-col overflow-hidden">
 
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-slate-800 flex-shrink-0">
@@ -903,7 +903,7 @@ const RevokeModal = ({ user, onClose, onRevoked }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
       <div className="bg-slate-950 border border-red-500/30 rounded-[2rem] shadow-2xl w-full max-w-sm">
         <div className="p-6 text-center">
           <UserMinus size={40} className="text-red-500 mx-auto mb-4" />
@@ -966,8 +966,8 @@ const EditPermissionsModal = ({ user, onClose, onSaved }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-      <div className="bg-slate-950 border border-slate-800 rounded-[2rem] shadow-2xl w-full max-w-lg max-h-[85dvh] overflow-y-auto">
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+      <div className="bg-slate-950 border border-slate-800 rounded-[2rem] shadow-2xl w-full max-w-lg max-h-[80dvh] overflow-y-auto">
         <div className="flex items-center justify-between p-6 border-b border-slate-800">
           <div>
             <h3 className="text-sm font-black text-white uppercase tracking-widest">Edit: {user.name}</h3>
@@ -1392,7 +1392,7 @@ const TeamTab = () => {
 
       {/* Reset Code Modal */}
       {resetCodeData && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
           <div className="bg-slate-950 border border-orange-500/30 rounded-[2rem] shadow-2xl w-full max-w-sm">
             <div className="p-8 text-center">
               <div className="w-16 h-16 bg-orange-500/10 border border-orange-500/30 rounded-2xl flex items-center justify-center mx-auto mb-5">
