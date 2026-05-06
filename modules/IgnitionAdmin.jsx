@@ -359,13 +359,13 @@ const InviteStaffModal = ({ onClose }) => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-      <div className="bg-slate-950 border border-slate-800 rounded-[2rem] shadow-2xl w-full max-w-lg max-h-[90dvh] overflow-y-auto">
-        <div className="flex items-center justify-between p-6 border-b border-slate-800 sticky top-0 bg-slate-950 z-10">
+      <div className="bg-slate-950 border border-slate-800 rounded-[2rem] shadow-2xl w-full max-w-lg max-h-[88dvh] flex flex-col overflow-hidden">
+        <div className="flex items-center justify-between p-6 border-b border-slate-800 flex-shrink-0">
           <h3 className="text-sm font-black text-white uppercase tracking-widest">Invite Staff Member</h3>
           <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors"><X size={18} /></button>
         </div>
 
-        <div className="p-6 space-y-5">
+        <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-5">
           {error && (
             <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3">
               <AlertTriangle size={13} className="text-red-400" />
@@ -492,7 +492,7 @@ const InviteStaffModal = ({ onClose }) => {
           )}
         </div>
 
-        <div className="p-6 border-t border-slate-800 flex gap-3 sticky bottom-0 bg-slate-950">
+        <div className="p-6 border-t border-slate-800 flex gap-3 flex-shrink-0">
           <button onClick={onClose} className="flex-1 bg-slate-900 border border-slate-700 text-slate-300 font-black py-3 rounded-xl text-[10px] uppercase tracking-widest hover:bg-slate-800 transition-colors">
             {inviteLink ? 'Done' : 'Cancel'}
           </button>
@@ -656,7 +656,7 @@ const ManageMemberModal = ({ member, shopId, onClose, onSaved }) => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-      <div className="bg-slate-950 border border-slate-800 rounded-[2rem] shadow-2xl w-full max-w-lg max-h-[90dvh] flex flex-col">
+      <div className="bg-slate-950 border border-slate-800 rounded-[2rem] shadow-2xl w-full max-w-lg max-h-[88dvh] flex flex-col overflow-hidden">
 
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-slate-800 flex-shrink-0">
@@ -685,7 +685,7 @@ const ManageMemberModal = ({ member, shopId, onClose, onSaved }) => {
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-5">
+        <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-5">
           {error && (
             <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3">
               <AlertTriangle size={13} className="text-red-400" />
