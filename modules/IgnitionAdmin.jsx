@@ -10,7 +10,8 @@ import {
   Users, ShieldCheck, Settings, Plus, Trash2, Save, Lock,
   AlertTriangle, CheckCircle, Eye, EyeOff, ChevronDown,
   ChevronUp, UserMinus, UserPlus, Edit3, X, Phone, Send,
-  KeyRound, Copy, RefreshCw, QrCode
+  KeyRound, Copy, RefreshCw, QrCode, Smartphone, User, Shield,
+  WifiOff, Layers
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { supabase } from '../supabase';
@@ -47,6 +48,27 @@ const ROLE_PRESETS = {
   TECH:       ['view_hub','view_flux','view_cipher','view_stok','scan_parts','update_flux'],
   SERVICE:    ['view_port','view_crm','view_cipher','view_stok','sign_estimates'],
   CUSTOMER:   ['view_port','sign_estimates','pay_invoice'],
+};
+
+const SUB_ROLES = {
+  TECH:     ['SR_TECH', 'BAY_TECH', 'APPRENTICE'],
+  SERVICE:  ['ADVISOR', 'CASHIER'],
+  ADMIN:    [],
+  CUSTOMER: [],
+};
+
+const formatLastSeen = (ts) => {
+  if (!ts) return 'Never';
+  const diff = Date.now() - new Date(ts).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 2)   return 'Just now';
+  if (mins < 60)  return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24)   return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days === 1) return 'Yesterday';
+  if (days < 7)   return `${days} days ago`;
+  return new Date(ts).toLocaleDateString();
 };
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
@@ -246,30 +268,77 @@ const AddStaffModal = ({ onClose, onSaved }) => {
 
 const InviteStaffModal = ({ onClose }) => {
   const shopId = DataBridge.load('shop_info')?.id || DataBridge.load('shop_policy')?.shop_id;
-  const [form, setForm] = useState({ name: '', role: 'TECH', phone: '' });
+  const [form, setForm] = useState({ name: '', role: 'TECH', sub_role: '', team_id: '', phone: '', permissions: [...ROLE_PRESETS.TECH] });
+  const [teams, setTeams] = useState([]);
   const [inviteLink, setInviteLink] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!shopId) return;
+    supabase.from('teams').select('id, name').eq('shop_id', shopId).order('name')
+      .then(({ data }) => setTeams(data || []));
+  }, [shopId]);
+
+  const applyRolePreset = (role) => {
+    setForm(f => ({ ...f, role, sub_role: '', permissions: [...(ROLE_PRESETS[role] || [])] }));
+  };
+
+  const togglePerm = (permId) => {
+    setForm(f => ({
+      ...f,
+      permissions: f.permissions.includes(permId)
+        ? f.permissions.filter(p => p !== permId)
+        : [...f.permissions, permId],
+    }));
+  };
 
   const generate = async () => {
     if (!form.name.trim()) return setError('Name is required.');
     if (!shopId) return setError('Shop not initialized. Complete onboarding first.');
     setLoading(true);
     setError('');
+
+    // 1. Create invite token first
     const token = crypto.randomUUID();
-    const { error: dbErr } = await supabase.from('shop_invites').insert({
-      token,
-      shop_id: shopId,
-      name: form.name.trim().toUpperCase(),
-      role: form.role,
-      phone: form.phone.trim() || null,
-    });
-    if (dbErr) {
+    const { data: invite, error: inviteErr } = await supabase
+      .from('shop_invites')
+      .insert({
+        token,
+        shop_id: shopId,
+        name: form.name.trim().toUpperCase(),
+        role: form.role,
+        phone: form.phone.trim() || null,
+      })
+      .select('id')
+      .single();
+
+    if (inviteErr) {
       setError('Failed to generate invite. Check connection.');
       setLoading(false);
       return;
     }
+
+    // 2. Create shop_members row (active=false) — owner sets identity before member enrolls
+    const { error: memberErr } = await supabase.from('shop_members').insert({
+      shop_id: shopId,
+      invite_id: invite.id,
+      name: form.name.trim().toUpperCase(),
+      role: form.role,
+      sub_role: form.sub_role || null,
+      team_id: form.team_id || null,
+      phone: form.phone.trim() || null,
+      permissions: form.permissions,
+      active: false,
+    });
+
+    if (memberErr) {
+      setError('Invite created but member record failed. Check connection.');
+      setLoading(false);
+      return;
+    }
+
     setInviteLink(`${window.location.origin}/?join=${shopId}&invite=${token}`);
     setLoading(false);
   };
@@ -286,10 +355,12 @@ const InviteStaffModal = ({ onClose }) => {
     window.open(`sms:${phone}?body=${encodeURIComponent(msg)}`);
   };
 
+  const subRoles = SUB_ROLES[form.role] || [];
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-      <div className="bg-slate-950 border border-slate-800 rounded-[2rem] shadow-2xl w-full max-w-lg">
-        <div className="flex items-center justify-between p-6 border-b border-slate-800">
+      <div className="bg-slate-950 border border-slate-800 rounded-[2rem] shadow-2xl w-full max-w-lg max-h-[90dvh] overflow-y-auto">
+        <div className="flex items-center justify-between p-6 border-b border-slate-800 sticky top-0 bg-slate-950 z-10">
           <h3 className="text-sm font-black text-white uppercase tracking-widest">Invite Staff Member</h3>
           <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors"><X size={18} /></button>
         </div>
@@ -304,6 +375,7 @@ const InviteStaffModal = ({ onClose }) => {
 
           {!inviteLink ? (
             <>
+              {/* Name */}
               <div>
                 <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Full Name *</label>
                 <input
@@ -314,12 +386,13 @@ const InviteStaffModal = ({ onClose }) => {
                 />
               </div>
 
+              {/* Role + Sub Role */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Role</label>
                   <select
                     value={form.role}
-                    onChange={e => setForm(f => ({ ...f, role: e.target.value }))}
+                    onChange={e => applyRolePreset(e.target.value)}
                     className="w-full bg-black border border-slate-800 rounded-xl px-4 py-3 text-white font-bold text-sm focus:outline-none focus:border-blue-500 transition-colors"
                   >
                     <option value="TECH">Technician</option>
@@ -328,7 +401,34 @@ const InviteStaffModal = ({ onClose }) => {
                   </select>
                 </div>
                 <div>
-                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Phone (for SMS)</label>
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Tier</label>
+                  <select
+                    value={form.sub_role}
+                    onChange={e => setForm(f => ({ ...f, sub_role: e.target.value }))}
+                    disabled={subRoles.length === 0}
+                    className="w-full bg-black border border-slate-800 rounded-xl px-4 py-3 text-white font-bold text-sm focus:outline-none focus:border-blue-500 transition-colors disabled:opacity-40"
+                  >
+                    <option value="">No tier</option>
+                    {subRoles.map(sr => <option key={sr} value={sr}>{sr.replace(/_/g, ' ')}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              {/* Team + Phone */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Team</label>
+                  <select
+                    value={form.team_id}
+                    onChange={e => setForm(f => ({ ...f, team_id: e.target.value }))}
+                    className="w-full bg-black border border-slate-800 rounded-xl px-4 py-3 text-white font-bold text-sm focus:outline-none focus:border-blue-500 transition-colors"
+                  >
+                    <option value="">No team</option>
+                    {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Phone (SMS)</label>
                   <input
                     value={form.phone}
                     onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
@@ -338,6 +438,35 @@ const InviteStaffModal = ({ onClose }) => {
                   />
                 </div>
               </div>
+
+              {/* Permissions */}
+              <div>
+                <div className="flex justify-between items-center mb-3">
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Permissions</label>
+                  <p className="text-[9px] text-slate-600">{form.permissions.length} active · set before invite is sent</p>
+                </div>
+                {PERM_GROUPS.map(group => (
+                  <div key={group} className="mb-3">
+                    <p className="text-[8px] font-black text-slate-700 uppercase tracking-widest mb-2">{group}</p>
+                    <div className="flex flex-wrap gap-2">
+                      {ALL_PERMISSIONS.filter(p => p.group === group).map(perm => {
+                        const on = form.permissions.includes(perm.id);
+                        return (
+                          <button
+                            key={perm.id}
+                            onClick={() => togglePerm(perm.id)}
+                            className={`text-[9px] font-black px-3 py-1.5 rounded-lg border transition-all ${
+                              on ? 'bg-blue-600/20 border-blue-500/40 text-blue-400' : 'bg-slate-900 border-slate-800 text-slate-600 hover:border-slate-600'
+                            }`}
+                          >
+                            {perm.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </>
           ) : (
             <div className="space-y-4">
@@ -345,31 +474,25 @@ const InviteStaffModal = ({ onClose }) => {
                 <p className="text-[9px] font-black text-emerald-400 uppercase tracking-widest mb-2">Invite generated for {form.name}</p>
                 <p className="text-[10px] text-slate-400 break-all font-mono leading-relaxed">{inviteLink}</p>
               </div>
-
+              <div className="bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 flex items-center gap-3">
+                <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center flex-shrink-0">
+                  <QRCodeSVG value={inviteLink} size={28} bgColor="#ffffff" fgColor="#000000" level="M" />
+                </div>
+                <p className="text-[9px] text-slate-500">QR code above or share the link · single-use · {form.name} sets their own PIN</p>
+              </div>
               <div className="grid grid-cols-2 gap-3">
-                <button
-                  onClick={copy}
-                  className="flex items-center justify-center gap-2 bg-slate-900 border border-slate-700 text-slate-300 font-black py-3 rounded-xl text-[10px] uppercase tracking-widest hover:bg-slate-800 transition-colors"
-                >
-                  <Copy size={13} />
-                  {copied ? 'Copied!' : 'Copy Link'}
+                <button onClick={copy} className="flex items-center justify-center gap-2 bg-slate-900 border border-slate-700 text-slate-300 font-black py-3 rounded-xl text-[10px] uppercase tracking-widest hover:bg-slate-800 transition-colors">
+                  <Copy size={13} /> {copied ? 'Copied!' : 'Copy Link'}
                 </button>
-                <button
-                  onClick={sendSms}
-                  className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-black py-3 rounded-xl text-[10px] uppercase tracking-widest transition-colors"
-                >
+                <button onClick={sendSms} className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-black py-3 rounded-xl text-[10px] uppercase tracking-widest transition-colors">
                   <Send size={13} /> Send SMS
                 </button>
               </div>
-
-              <p className="text-[9px] text-slate-600 text-center">
-                Single-use link · {form.name} picks their own PIN
-              </p>
             </div>
           )}
         </div>
 
-        <div className="p-6 border-t border-slate-800 flex gap-3">
+        <div className="p-6 border-t border-slate-800 flex gap-3 sticky bottom-0 bg-slate-950">
           <button onClick={onClose} className="flex-1 bg-slate-900 border border-slate-700 text-slate-300 font-black py-3 rounded-xl text-[10px] uppercase tracking-widest hover:bg-slate-800 transition-colors">
             {inviteLink ? 'Done' : 'Cancel'}
           </button>
@@ -383,6 +506,372 @@ const InviteStaffModal = ({ onClose }) => {
             </button>
           )}
         </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── CREATE TEAM MODAL ───────────────────────────────────────────────────────
+
+const CreateTeamModal = ({ shopId, onClose, onCreated }) => {
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const save = async () => {
+    if (!name.trim()) return setError('Team name is required.');
+    setLoading(true);
+    const { error: err } = await supabase.from('teams').insert({
+      shop_id: shopId,
+      name: name.trim().toUpperCase(),
+      description: description.trim() || null,
+    });
+    setLoading(false);
+    if (err) { setError('Failed to create team. Check connection.'); return; }
+    onCreated();
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+      <div className="bg-slate-950 border border-slate-800 rounded-[2rem] shadow-2xl w-full max-w-sm">
+        <div className="flex items-center justify-between p-6 border-b border-slate-800">
+          <h3 className="text-sm font-black text-white uppercase tracking-widest">Create Team</h3>
+          <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors"><X size={18} /></button>
+        </div>
+        <div className="p-6 space-y-4">
+          {error && (
+            <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3">
+              <AlertTriangle size={13} className="text-red-400" />
+              <p className="text-[10px] font-black text-red-400">{error}</p>
+            </div>
+          )}
+          <div>
+            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Team Name *</label>
+            <input
+              value={name}
+              onChange={e => { setName(e.target.value.toUpperCase()); setError(''); }}
+              placeholder="TECH TEAM"
+              className="w-full bg-black border border-slate-800 rounded-xl px-4 py-3 text-white font-bold text-sm focus:outline-none focus:border-blue-500 transition-colors"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Description</label>
+            <input
+              value={description}
+              onChange={e => setDescription(e.target.value)}
+              placeholder="Optional"
+              className="w-full bg-black border border-slate-800 rounded-xl px-4 py-3 text-white font-bold text-sm focus:outline-none focus:border-blue-500 transition-colors"
+            />
+          </div>
+        </div>
+        <div className="p-6 border-t border-slate-800 flex gap-3">
+          <button onClick={onClose} className="flex-1 bg-slate-900 border border-slate-700 text-slate-300 font-black py-3 rounded-xl text-[10px] uppercase tracking-widest hover:bg-slate-800 transition-colors">Cancel</button>
+          <button onClick={save} disabled={loading || !name.trim()} className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-black py-3 rounded-xl text-[10px] uppercase tracking-widest transition-colors flex items-center justify-center gap-2">
+            <Layers size={13} /> {loading ? 'Creating...' : 'Create Team'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── MANAGE MEMBER MODAL ──────────────────────────────────────────────────────
+
+const ManageMemberModal = ({ member, shopId, onClose, onSaved }) => {
+  const [activeTab, setActiveTab] = useState('profile');
+  const [form, setForm] = useState({
+    name:     member.name,
+    role:     member.role,
+    sub_role: member.sub_role || '',
+    phone:    member.phone || '',
+    team_id:  member.team_id || '',
+  });
+  const [permissions, setPermissions] = useState([...(member.permissions || [])]);
+  const [teams, setTeams]     = useState([]);
+  const [devices, setDevices] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError]     = useState('');
+  const [saved, setSaved]     = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(null);
+
+  useEffect(() => {
+    Promise.all([
+      supabase.from('teams').select('id, name').eq('shop_id', shopId).order('name'),
+      supabase.from('member_devices').select('*').eq('member_id', member.id).order('created_at', { ascending: false }),
+    ]).then(([teamsRes, devicesRes]) => {
+      setTeams(teamsRes.data || []);
+      setDevices(devicesRes.data || []);
+    });
+  }, [member.id, shopId]);
+
+  const applyRolePreset = (role) => {
+    setForm(f => ({ ...f, role, sub_role: '' }));
+    setPermissions([...(ROLE_PRESETS[role] || [])]);
+  };
+
+  const togglePerm = (permId) => {
+    setPermissions(p => p.includes(permId) ? p.filter(x => x !== permId) : [...p, permId]);
+  };
+
+  const save = async () => {
+    setLoading(true);
+    setError('');
+    const { error: err } = await supabase.from('shop_members').update({
+      name:        form.name.trim().toUpperCase(),
+      role:        form.role,
+      sub_role:    form.sub_role || null,
+      phone:       form.phone.trim() || null,
+      team_id:     form.team_id || null,
+      permissions,
+    }).eq('id', member.id);
+    setLoading(false);
+    if (err) { setError('Failed to save. Check connection.'); return; }
+    setSaved(true);
+    setTimeout(() => { setSaved(false); onSaved(); }, 1200);
+  };
+
+  const disableDevice  = async (id) => {
+    await supabase.from('member_devices').update({ is_active: false }).eq('id', id);
+    setDevices(d => d.map(dev => dev.id === id ? { ...dev, is_active: false } : dev));
+  };
+  const enableDevice   = async (id) => {
+    await supabase.from('member_devices').update({ is_active: true }).eq('id', id);
+    setDevices(d => d.map(dev => dev.id === id ? { ...dev, is_active: true } : dev));
+  };
+  const deleteDevice   = async (id) => {
+    await supabase.from('member_devices').delete().eq('id', id);
+    setDevices(d => d.filter(dev => dev.id !== id));
+    setConfirmDelete(null);
+  };
+
+  const subRoles = SUB_ROLES[form.role] || [];
+
+  const MANAGE_TABS = [
+    { id: 'profile',     label: 'Profile',     Icon: User },
+    { id: 'permissions', label: 'Permissions', Icon: Shield },
+    { id: 'devices',     label: `Devices (${devices.length})`, Icon: Smartphone },
+  ];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+      <div className="bg-slate-950 border border-slate-800 rounded-[2rem] shadow-2xl w-full max-w-lg max-h-[90dvh] flex flex-col">
+
+        {/* Header */}
+        <div className="flex items-center justify-between p-6 border-b border-slate-800 flex-shrink-0">
+          <div>
+            <h3 className="text-sm font-black text-white uppercase tracking-widest">{member.name}</h3>
+            <p className="text-[9px] text-slate-500 mt-0.5 uppercase tracking-wider">Manage Member</p>
+          </div>
+          <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors"><X size={18} /></button>
+        </div>
+
+        {/* Sub-tabs */}
+        <div className="flex gap-2 px-6 pt-4 flex-shrink-0">
+          {MANAGE_TABS.map(({ id, label, Icon }) => (
+            <button
+              key={id}
+              onClick={() => setActiveTab(id)}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-xl font-black text-[9px] uppercase tracking-widest transition-all ${
+                activeTab === id
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-slate-900 border border-slate-800 text-slate-500 hover:text-white hover:border-slate-600'
+              }`}
+            >
+              <Icon size={11} /> {label}
+            </button>
+          ))}
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-5">
+          {error && (
+            <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3">
+              <AlertTriangle size={13} className="text-red-400" />
+              <p className="text-[10px] font-black text-red-400">{error}</p>
+            </div>
+          )}
+          {saved && (
+            <div className="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 rounded-xl px-4 py-3">
+              <CheckCircle size={13} className="text-emerald-400" />
+              <p className="text-[10px] font-black text-emerald-400 uppercase tracking-wider">Saved</p>
+            </div>
+          )}
+
+          {/* ── PROFILE TAB ── */}
+          {activeTab === 'profile' && (
+            <>
+              <div>
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Full Name</label>
+                <input
+                  value={form.name}
+                  onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                  className="w-full bg-black border border-slate-800 rounded-xl px-4 py-3 text-white font-bold text-sm focus:outline-none focus:border-blue-500 transition-colors"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Role</label>
+                  <select
+                    value={form.role}
+                    onChange={e => applyRolePreset(e.target.value)}
+                    className="w-full bg-black border border-slate-800 rounded-xl px-4 py-3 text-white font-bold text-sm focus:outline-none focus:border-blue-500 transition-colors"
+                  >
+                    <option value="TECH">Technician</option>
+                    <option value="SERVICE">Front Office</option>
+                    <option value="ADMIN">Admin</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Tier</label>
+                  <select
+                    value={form.sub_role}
+                    onChange={e => setForm(f => ({ ...f, sub_role: e.target.value }))}
+                    disabled={subRoles.length === 0}
+                    className="w-full bg-black border border-slate-800 rounded-xl px-4 py-3 text-white font-bold text-sm focus:outline-none focus:border-blue-500 transition-colors disabled:opacity-40"
+                  >
+                    <option value="">No tier</option>
+                    {subRoles.map(sr => <option key={sr} value={sr}>{sr.replace(/_/g, ' ')}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Team</label>
+                  <select
+                    value={form.team_id}
+                    onChange={e => setForm(f => ({ ...f, team_id: e.target.value }))}
+                    className="w-full bg-black border border-slate-800 rounded-xl px-4 py-3 text-white font-bold text-sm focus:outline-none focus:border-blue-500 transition-colors"
+                  >
+                    <option value="">No team</option>
+                    {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Phone</label>
+                  <input
+                    value={form.phone}
+                    onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
+                    type="tel"
+                    placeholder="512-555-0100"
+                    className="w-full bg-black border border-slate-800 rounded-xl px-4 py-3 text-white font-bold text-sm focus:outline-none focus:border-blue-500 transition-colors"
+                  />
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* ── PERMISSIONS TAB ── */}
+          {activeTab === 'permissions' && (
+            <>
+              <div className="flex gap-2 flex-wrap mb-1">
+                {Object.keys(ROLE_PRESETS).map(r => (
+                  <button key={r} onClick={() => { setForm(f => ({ ...f, role: r })); setPermissions([...ROLE_PRESETS[r]]); }}
+                    className={`text-[9px] font-black px-4 py-2 rounded-xl border transition-all uppercase ${form.role === r ? 'bg-blue-600/20 border-blue-500/40 text-blue-400' : 'bg-slate-900 border-slate-800 text-slate-500 hover:border-slate-600'}`}>
+                    {r}
+                  </button>
+                ))}
+              </div>
+              {PERM_GROUPS.map(group => (
+                <div key={group} className="mb-3">
+                  <p className="text-[8px] font-black text-slate-700 uppercase tracking-widest mb-2">{group}</p>
+                  <div className="flex flex-wrap gap-2">
+                    {ALL_PERMISSIONS.filter(p => p.group === group).map(perm => {
+                      const on = permissions.includes(perm.id);
+                      return (
+                        <button key={perm.id} onClick={() => togglePerm(perm.id)}
+                          className={`text-[9px] font-black px-3 py-1.5 rounded-lg border transition-all ${on ? 'bg-blue-600/20 border-blue-500/40 text-blue-400' : 'bg-slate-900 border-slate-800 text-slate-600 hover:border-slate-600'}`}>
+                          {perm.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
+
+          {/* ── DEVICES TAB ── */}
+          {activeTab === 'devices' && (
+            <div className="space-y-3">
+              {devices.length === 0 && (
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center">
+                  <Smartphone size={28} className="text-slate-700 mx-auto mb-3" />
+                  <p className="text-[10px] text-slate-600 uppercase tracking-wider">No devices enrolled</p>
+                  <p className="text-[9px] text-slate-700 mt-1">Devices appear here after the member logs in</p>
+                </div>
+              )}
+              {devices.map(dev => (
+                <div key={dev.id} className={`bg-slate-900 border rounded-2xl px-5 py-4 transition-colors ${dev.is_active ? 'border-slate-800' : 'border-red-500/20 opacity-60'}`}>
+                  <div className="flex items-center gap-4">
+                    <div className={`w-10 h-10 rounded-2xl border flex items-center justify-center flex-shrink-0 ${dev.is_active ? 'bg-slate-800 border-slate-700' : 'bg-red-500/10 border-red-500/20'}`}>
+                      {dev.is_active ? <Smartphone size={16} className="text-slate-400" /> : <WifiOff size={16} className="text-red-400" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-black text-white uppercase">{dev.device_label || 'Unknown Device'}</p>
+                        {!dev.is_active && <Badge label="Disabled" color="red" />}
+                        {dev.biometric_enrolled && <Badge label="Biometrics" color="emerald" />}
+                      </div>
+                      <p className="text-[9px] text-slate-600 mt-0.5">Last seen: {formatLastSeen(dev.last_seen)}</p>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      {dev.is_active ? (
+                        <button onClick={() => disableDevice(dev.id)}
+                          className="text-[9px] font-black bg-slate-800 hover:bg-orange-600/20 border border-slate-700 hover:border-orange-500/40 text-slate-400 hover:text-orange-400 px-3 py-2 rounded-xl uppercase tracking-wider transition-all"
+                          title="Disable this device">
+                          Disable
+                        </button>
+                      ) : (
+                        <>
+                          <button onClick={() => enableDevice(dev.id)}
+                            className="text-[9px] font-black bg-emerald-600/10 hover:bg-emerald-600/20 border border-emerald-500/20 hover:border-emerald-500/40 text-emerald-400 px-3 py-2 rounded-xl uppercase tracking-wider transition-all">
+                            Re-enable
+                          </button>
+                          {confirmDelete === dev.id ? (
+                            <div className="flex items-center gap-1">
+                              <button onClick={() => deleteDevice(dev.id)}
+                                className="text-[9px] font-black bg-red-600/20 border border-red-500/40 text-red-400 px-3 py-2 rounded-xl uppercase tracking-wider hover:bg-red-600/30 transition-all">
+                                Confirm Delete
+                              </button>
+                              <button onClick={() => setConfirmDelete(null)} className="text-slate-600 hover:text-white p-1.5"><X size={12} /></button>
+                            </div>
+                          ) : (
+                            <button onClick={() => setConfirmDelete(dev.id)}
+                              className="text-[9px] font-black bg-slate-800 hover:bg-red-600/20 border border-slate-700 hover:border-red-500/40 text-slate-500 hover:text-red-400 px-3 py-2 rounded-xl uppercase tracking-wider transition-all">
+                              Delete
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+              <p className="text-[9px] text-slate-700 text-center pt-2">Disable = device locked out but recoverable · Delete = permanent</p>
+            </div>
+          )}
+        </div>
+
+        {/* Footer — save only for profile/permissions tabs */}
+        {activeTab !== 'devices' && (
+          <div className="p-6 border-t border-slate-800 flex gap-3 flex-shrink-0">
+            <button onClick={onClose} className="flex-1 bg-slate-900 border border-slate-700 text-slate-300 font-black py-3 rounded-xl text-[10px] uppercase tracking-widest hover:bg-slate-800 transition-colors">
+              Cancel
+            </button>
+            <button onClick={save} disabled={loading} className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-black py-3 rounded-xl text-[10px] uppercase tracking-widest transition-colors flex items-center justify-center gap-2">
+              <Save size={13} /> {loading ? 'Saving...' : 'Save Changes'}
+            </button>
+          </div>
+        )}
+        {activeTab === 'devices' && (
+          <div className="p-6 border-t border-slate-800 flex-shrink-0">
+            <button onClick={onClose} className="w-full bg-slate-900 border border-slate-700 text-slate-300 font-black py-3 rounded-xl text-[10px] uppercase tracking-widest hover:bg-slate-800 transition-colors">
+              Close
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -662,14 +1151,60 @@ const StaffTab = () => {
 
 // ─── TAB: TEAM ────────────────────────────────────────────────────────────────
 
+const MemberCard = ({ member, onManage, onReset, resetting }) => (
+  <div className="bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 flex items-center gap-4 hover:border-slate-700 transition-colors">
+    <div className="w-10 h-10 rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center flex-shrink-0">
+      <span className="text-[10px] font-black text-slate-400 uppercase">
+        {member.name?.split(' ').map(n => n[0]).join('').slice(0, 2)}
+      </span>
+    </div>
+    <div className="flex-1 min-w-0">
+      <div className="flex items-center gap-2 flex-wrap">
+        <p className="text-sm font-black text-white uppercase">{member.name}</p>
+        <Badge label={member.role} color={roleColor(member.role)} />
+        {member.sub_role && <Badge label={member.sub_role.replace(/_/g, ' ')} color="slate" />}
+        {!member.active && <Badge label="Pending" color="orange" />}
+      </div>
+      {member.phone && (
+        <p className="text-[9px] text-slate-600 mt-0.5 flex items-center gap-1">
+          <Phone size={9} /> {member.phone}
+        </p>
+      )}
+    </div>
+    <div className="flex items-center gap-2 flex-shrink-0">
+      <button
+        onClick={() => onManage(member)}
+        className="flex items-center gap-1.5 bg-slate-800 hover:bg-blue-600/20 border border-slate-700 hover:border-blue-500/40 text-slate-400 hover:text-blue-400 font-black px-3 py-2 rounded-xl text-[9px] uppercase tracking-wider transition-all"
+        title="Manage member"
+      >
+        <Edit3 size={11} /> Manage
+      </button>
+      {member.active && (
+        <button
+          onClick={() => onReset(member)}
+          disabled={resetting === member.id}
+          className="flex items-center gap-1.5 bg-slate-800 hover:bg-orange-600/20 border border-slate-700 hover:border-orange-500/40 text-slate-400 hover:text-orange-400 font-black px-3 py-2 rounded-xl text-[9px] uppercase tracking-wider transition-all disabled:opacity-50"
+          title="Generate PIN reset code"
+        >
+          <KeyRound size={11} />
+          {resetting === member.id ? '...' : 'Reset PIN'}
+        </button>
+      )}
+    </div>
+  </div>
+);
+
 const TeamTab = () => {
   const shopId = DataBridge.load('shop_info')?.id || DataBridge.load('shop_policy')?.shop_id;
   const joinUrl = shopId ? `${window.location.origin}/?join=${shopId}` : '';
 
+  const [teams, setTeams]               = useState([]);
   const [members, setMembers]           = useState([]);
   const [pendingInvites, setPendingInvites] = useState([]);
   const [loading, setLoading]           = useState(true);
   const [showInvite, setShowInvite]     = useState(false);
+  const [showCreateTeam, setShowCreateTeam] = useState(false);
+  const [manageTarget, setManageTarget] = useState(null);
   const [resetCodeData, setResetCodeData] = useState(null);
   const [generatingReset, setGeneratingReset] = useState(null);
   const [copied, setCopied]             = useState(false);
@@ -677,10 +1212,12 @@ const TeamTab = () => {
   const refresh = async () => {
     if (!shopId) { setLoading(false); return; }
     setLoading(true);
-    const [membersRes, invitesRes] = await Promise.all([
+    const [teamsRes, membersRes, invitesRes] = await Promise.all([
+      supabase.from('teams').select('*').eq('shop_id', shopId).order('name'),
       supabase.from('shop_members').select('*').eq('shop_id', shopId).order('joined_at', { ascending: false }),
       supabase.from('shop_invites').select('*').eq('shop_id', shopId).eq('used', false).order('created_at', { ascending: false }),
     ]);
+    setTeams(teamsRes.data || []);
     setMembers(membersRes.data || []);
     setPendingInvites(invitesRes.data || []);
     setLoading(false);
@@ -693,12 +1230,13 @@ const TeamTab = () => {
     const code = Math.floor(100000 + Math.random() * 900000).toString();
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
     const { error } = await supabase.from('pin_resets').insert({
-      reset_code: code,
-      shop_id: shopId,
+      reset_code:  code,
+      shop_id:     shopId,
+      member_id:   member.id,
       member_name: member.name,
       member_role: member.role,
       permissions: member.permissions || [],
-      expires_at: expiresAt,
+      expires_at:  expiresAt,
     });
     setGeneratingReset(null);
     if (!error) setResetCodeData({ code, name: member.name });
@@ -715,6 +1253,13 @@ const TeamTab = () => {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  // Group members: by team, then unassigned
+  const membersByTeam = teams.map(team => ({
+    team,
+    members: members.filter(m => m.team_id === team.id),
+  }));
+  const unassigned = members.filter(m => !m.team_id);
+
   return (
     <div className="space-y-6">
       {/* Shop QR Code */}
@@ -724,10 +1269,7 @@ const TeamTab = () => {
             <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Shop Join Code</p>
             <p className="text-[9px] text-slate-600">Team members scan to join this shop</p>
           </div>
-          <button
-            onClick={copyLink}
-            className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-black px-3 py-2 rounded-xl text-[9px] uppercase tracking-wider transition-colors"
-          >
+          <button onClick={copyLink} className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-black px-3 py-2 rounded-xl text-[9px] uppercase tracking-wider transition-colors">
             <Copy size={11} /> {copied ? 'Copied!' : 'Copy Link'}
           </button>
         </div>
@@ -744,71 +1286,71 @@ const TeamTab = () => {
         </div>
       </div>
 
-      {/* Team Members */}
-      <div>
-        <div className="flex justify-between items-center mb-3">
-          <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
-            {loading ? '...' : members.length} Team Member{members.length !== 1 ? 's' : ''}
-          </p>
-          <div className="flex gap-2">
-            <button
-              onClick={refresh}
-              className="p-2 bg-slate-900 border border-slate-800 rounded-lg text-slate-500 hover:text-white transition-colors"
-              title="Refresh"
-            >
-              <RefreshCw size={12} />
-            </button>
-            <button
-              onClick={() => setShowInvite(true)}
-              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-black px-4 py-2 rounded-xl text-[9px] uppercase tracking-widest transition-colors"
-            >
-              <Plus size={12} /> Invite
-            </button>
-          </div>
+      {/* Toolbar */}
+      <div className="flex justify-between items-center">
+        <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+          {loading ? '...' : `${members.length} Member${members.length !== 1 ? 's' : ''} · ${teams.length} Team${teams.length !== 1 ? 's' : ''}`}
+        </p>
+        <div className="flex gap-2">
+          <button onClick={refresh} className="p-2 bg-slate-900 border border-slate-800 rounded-lg text-slate-500 hover:text-white transition-colors" title="Refresh">
+            <RefreshCw size={12} />
+          </button>
+          <button onClick={() => setShowCreateTeam(true)} className="flex items-center gap-2 bg-slate-900 border border-slate-700 hover:border-slate-500 text-slate-300 font-black px-4 py-2 rounded-xl text-[9px] uppercase tracking-widest transition-colors">
+            <Layers size={12} /> New Team
+          </button>
+          <button onClick={() => setShowInvite(true)} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-black px-4 py-2 rounded-xl text-[9px] uppercase tracking-widest transition-colors">
+            <Plus size={12} /> Invite
+          </button>
         </div>
-
-        {loading ? (
-          <div className="text-center py-8 text-slate-600 text-[10px] uppercase tracking-wider animate-pulse">Loading team...</div>
-        ) : members.length === 0 ? (
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center">
-            <Users size={32} className="text-slate-700 mx-auto mb-3" />
-            <p className="text-[10px] text-slate-600 uppercase tracking-wider">No team members yet</p>
-            <p className="text-[9px] text-slate-700 mt-1">Share the QR code or generate invite links</p>
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {members.map(member => (
-              <div key={member.id} className="bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 flex items-center gap-4 hover:border-slate-700 transition-colors">
-                <div className="w-10 h-10 rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center flex-shrink-0">
-                  <span className="text-[10px] font-black text-slate-400 uppercase">
-                    {member.name?.split(' ').map(n => n[0]).join('').slice(0, 2)}
-                  </span>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <p className="text-sm font-black text-white uppercase">{member.name}</p>
-                    <Badge label={member.role} color={roleColor(member.role)} />
-                  </div>
-                  {member.phone && (
-                    <p className="text-[9px] text-slate-600 mt-0.5 flex items-center gap-1">
-                      <Phone size={9} /> {member.phone}
-                    </p>
-                  )}
-                </div>
-                <button
-                  onClick={() => generateReset(member)}
-                  disabled={generatingReset === member.id}
-                  className="flex items-center gap-1.5 bg-slate-800 hover:bg-orange-600/20 border border-slate-700 hover:border-orange-500/40 text-slate-400 hover:text-orange-400 font-black px-3 py-2 rounded-xl text-[9px] uppercase tracking-wider transition-all disabled:opacity-50"
-                  title="Generate PIN reset code"
-                >
-                  <KeyRound size={11} />
-                  {generatingReset === member.id ? '...' : 'Reset PIN'}
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
+
+      {loading ? (
+        <div className="text-center py-8 text-slate-600 text-[10px] uppercase tracking-wider animate-pulse">Loading team...</div>
+      ) : members.length === 0 && teams.length === 0 ? (
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center">
+          <Users size={32} className="text-slate-700 mx-auto mb-3" />
+          <p className="text-[10px] text-slate-600 uppercase tracking-wider">No team members yet</p>
+          <p className="text-[9px] text-slate-700 mt-1">Create a team then invite members, or invite directly</p>
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {/* Members grouped by team */}
+          {membersByTeam.map(({ team, members: teamMembers }) => (
+            <div key={team.id}>
+              <div className="flex items-center gap-3 mb-3">
+                <Layers size={12} className="text-slate-600" />
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{team.name}</p>
+                <span className="text-[9px] text-slate-700">{teamMembers.length} member{teamMembers.length !== 1 ? 's' : ''}</span>
+              </div>
+              {teamMembers.length === 0 ? (
+                <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl px-5 py-4 text-[9px] text-slate-700 italic">No members in this team yet</div>
+              ) : (
+                <div className="space-y-2">
+                  {teamMembers.map(m => (
+                    <MemberCard key={m.id} member={m} onManage={setManageTarget} onReset={generateReset} resetting={generatingReset} />
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+
+          {/* Unassigned members */}
+          {unassigned.length > 0 && (
+            <div>
+              <div className="flex items-center gap-3 mb-3">
+                <Users size={12} className="text-slate-600" />
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Unassigned</p>
+                <span className="text-[9px] text-slate-700">{unassigned.length} member{unassigned.length !== 1 ? 's' : ''}</span>
+              </div>
+              <div className="space-y-2">
+                {unassigned.map(m => (
+                  <MemberCard key={m.id} member={m} onManage={setManageTarget} onReset={generateReset} resetting={generatingReset} />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Pending Invites */}
       {pendingInvites.length > 0 && (
@@ -818,20 +1360,16 @@ const TeamTab = () => {
           </p>
           <div className="space-y-2">
             {pendingInvites.map(invite => (
-              <div key={invite.id} className="bg-slate-900 border border-slate-800 rounded-2xl px-5 py-3 flex items-center gap-4">
+              <div key={invite.id} className="bg-slate-900 border border-slate-800/80 rounded-2xl px-5 py-3 flex items-center gap-4">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <p className="text-sm font-black text-white uppercase">{invite.name}</p>
                     <Badge label={invite.role} color={roleColor(invite.role)} />
-                    <Badge label="Pending" color="orange" />
+                    <Badge label="Awaiting Enrollment" color="orange" />
                   </div>
                   {invite.phone && <p className="text-[9px] text-slate-600">{invite.phone}</p>}
                 </div>
-                <button
-                  onClick={() => revokeInvite(invite.id)}
-                  className="text-slate-600 hover:text-red-400 transition-colors p-2"
-                  title="Revoke invite"
-                >
+                <button onClick={() => revokeInvite(invite.id)} className="text-slate-600 hover:text-red-400 transition-colors p-2" title="Revoke invite">
                   <X size={13} />
                 </button>
               </div>
@@ -840,9 +1378,16 @@ const TeamTab = () => {
         </div>
       )}
 
-      {/* Invite Modal */}
-      {showInvite && (
-        <InviteStaffModal onClose={() => { setShowInvite(false); refresh(); }} />
+      {/* Modals */}
+      {showInvite      && <InviteStaffModal onClose={() => { setShowInvite(false); refresh(); }} />}
+      {showCreateTeam  && <CreateTeamModal shopId={shopId} onClose={() => setShowCreateTeam(false)} onCreated={refresh} />}
+      {manageTarget    && (
+        <ManageMemberModal
+          member={manageTarget}
+          shopId={shopId}
+          onClose={() => setManageTarget(null)}
+          onSaved={() => { setManageTarget(null); refresh(); }}
+        />
       )}
 
       {/* Reset Code Modal */}
@@ -861,13 +1406,8 @@ const TeamTab = () => {
               <div className="bg-black border border-orange-500/20 rounded-2xl py-6 mb-5">
                 <p className="text-5xl font-black text-orange-400 tracking-[0.3em]">{resetCodeData.code}</p>
               </div>
-              <p className="text-[9px] text-slate-600 mb-6">
-                They'll enter this on the "Forgot PIN" screen to set a new PIN.
-              </p>
-              <button
-                onClick={() => setResetCodeData(null)}
-                className="w-full bg-slate-900 border border-slate-700 text-slate-300 font-black py-3 rounded-xl text-[10px] uppercase tracking-widest hover:bg-slate-800 transition-colors"
-              >
+              <p className="text-[9px] text-slate-600 mb-6">They'll enter this on the "Forgot PIN" screen to set a new PIN.</p>
+              <button onClick={() => setResetCodeData(null)} className="w-full bg-slate-900 border border-slate-700 text-slate-300 font-black py-3 rounded-xl text-[10px] uppercase tracking-widest hover:bg-slate-800 transition-colors">
                 Done
               </button>
             </div>
