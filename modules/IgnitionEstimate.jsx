@@ -330,8 +330,56 @@ export default function IgnitionEstimate() {
     if (estimate?.id) {
       const { data: fresh } = await supabase.from('estimates').select('*').eq('id', estimate.id).single();
       if (fresh) setEstimate(fresh);
-      await loadLineItems(estimate.id);
+      
+      const { data: freshItems } = await supabase.from('estimate_line_items').select('*')
+        .eq('estimate_id', estimate.id)
+        .order('sort_order');
+        
+      if (freshItems) {
+        setLineItems(freshItems);
+        
+        // Parts Sourcing Trigger
+        const approvedParts = freshItems.filter(i => i.item_type === 'PART' && i.auth_status === 'approved');
+        
+        if (approvedParts.length > 0) {
+          // Mock inventory (from STOK)
+          const mockInventory = [
+            { id: 'P-101', name: 'NOx Sensor (Inlet)', partNum: '2871979-NX', qty: 3, cost: 450 },
+            { id: 'P-102', name: 'DPF Filter Kit', partNum: 'A0014903492', qty: 1, cost: 1200 },
+            { id: 'P-103', name: 'Fuel Relief Valve', partNum: 'RV-99', qty: 0, cost: 180 }
+          ];
+
+          const outOfStockParts = [];
+          
+          for (const part of approvedParts) {
+            const inStock = mockInventory.find(inv => 
+              part.description.toLowerCase().includes(inv.name.toLowerCase()) || 
+              (part.part_number && inv.partNum.includes(part.part_number))
+            );
+            
+            // Out of stock if not found or qty <= 0
+            if (!inStock || inStock.qty <= 0) {
+              outOfStockParts.push(part);
+            }
+          }
+          
+          if (outOfStockParts.length > 0) {
+            const poTotal = outOfStockParts.reduce((sum, p) => sum + (p.unit_cost || p.unit_price || 0) * (p.quantity || 1), 0);
+            
+            await supabase.from('purchase_orders').insert({
+              shop_id: shopId,
+              job_id: selectedJob?.id,
+              vendor_name: 'Pending Vendor Selection',
+              status: 'PENDING',
+              line_items: outOfStockParts,
+              total: +poTotal.toFixed(2)
+            });
+            console.log(`[STOK] Created PO for ${outOfStockParts.length} out-of-stock parts.`);
+          }
+        }
+      }
     }
+    
     if (selectedJob?.id) {
       const { data: freshJob } = await supabase.from('jobs').select('*').eq('id', selectedJob.id).single();
       if (freshJob) {

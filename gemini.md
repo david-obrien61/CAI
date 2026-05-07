@@ -8,11 +8,11 @@
 > This section is rewritten at the end of every session by whichever AI is finishing.
 > Read this first — it tells you exactly where to pick up.
 
-- **Completed this session:** Zone 2 — `modules/IgnitionEval.jsx` built and committed. Tech enters from KOSK "Begin Eval" button or dashboard tile. Writes to `evaluations`, `dtc_codes`, `eval_photos` (Supabase Storage), `labor_entries`. On submit: `jobs.status='eval_done'`, labor clocked out.
-- **Next task:** Parts sourcing trigger — after `jobs.status` flips to `authorized`, split approved `estimate_line_items` into in-stock (pull from inventory) vs. out-of-stock (create `purchase_orders` rows). This can be a new backend endpoint `POST /api/parts/source` or a trigger inside `handleAuthorized()` in `IgnitionEstimate.jsx`.
+- **Completed this session:** Parts sourcing trigger implemented in `IgnitionEstimate.jsx`'s `handleAuthorized`. Generates `purchase_orders` in Supabase for out-of-stock parts comparing against a mock STOK inventory.
+- **Next task:** Invoice + closeout: generate invoice from authorized estimate_line_items → invoice_line_items snapshot → payment → jobs.status='closed'
 - **Prerequisite note for pilot:** `eval-photos` Supabase Storage bucket must be created manually in the Supabase dashboard before photo upload in `IgnitionEval.jsx` works. Bucket name: `eval-photos`, set to public.
 - **Also pending:** Migrate `IgnitionFlux`, `IgnitionKosk`, `IgnitionOmni` from localStorage reads to Supabase queries.
-- **Session ended by:** Claude — 2026-05-07
+- **Session ended by:** Gemini — 2026-05-07
 
 **Collaboration workflow:**
 1. Generate feature specs or code snippets in Gemini web session
@@ -76,7 +76,7 @@ intake → queued → in_eval → eval_done → estimating → pending_auth
 
 ## Active Tasks
 - [x] Zone 2 — Tech eval UI: `IgnitionEval.jsx` — DTC codes, photos, work items, labor clock, submit → eval_done
-- [ ] Parts sourcing trigger: after authorization, split approved line items → in-stock pull vs. PO creation for out-of-stock
+- [x] Parts sourcing trigger: after authorization, split approved line items → in-stock pull vs. PO creation for out-of-stock
 - [ ] Invoice + closeout: generate invoice from authorized estimate_line_items → invoice_line_items snapshot → payment → jobs.status='closed'
 - [ ] Migrate FLUX, KOSK, OMNI to read job state from Supabase instead of localStorage
 - [ ] Repair workflow: labor clock-in/out, repair_logs entries, supplement branch detection

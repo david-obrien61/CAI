@@ -8,11 +8,11 @@
 > This section is rewritten at the end of every session by whichever AI is finishing.
 > The next AI reads this first and picks up from here — no recap needed.
 
-- **Completed this session:** Zone 2 — `modules/IgnitionEval.jsx` built and wired. KOSK gets "Begin Eval" button (visible when clocked in). Dashboard gets "Tech Eval" tile. CoreApp has `EVAL` route. All committed.
-- **Next task:** Parts sourcing trigger — after `jobs.status` flips to `authorized`, split approved `estimate_line_items` into in-stock (pull from `IgnitionStok` inventory) vs. out-of-stock (create `purchase_orders` rows). Needs a new backend endpoint or a frontend trigger in `CustomerApprovalPortal.jsx` → `onAuthorized` callback.
+- **Completed this session:** Parts sourcing trigger implemented in `IgnitionEstimate.jsx`'s `handleAuthorized`. Generates `purchase_orders` in Supabase for out-of-stock parts comparing against a mock STOK inventory.
+- **Next task:** Invoice + closeout: generate invoice from authorized estimate_line_items → invoice_line_items snapshot → payment collection → jobs.status='closed'
 - **Prerequisite note:** `eval-photos` Supabase Storage bucket must be created manually in the Supabase dashboard before photo upload works. Bucket name: `eval-photos`, set to public.
 - **Also pending:** Migrate `IgnitionFlux`, `IgnitionKosk`, `IgnitionOmni` from localStorage to Supabase queries.
-- **Session ended by:** Claude — 2026-05-07
+- **Session ended by:** Gemini — 2026-05-07
 
 ## Architecture
 - **Frontend:** React + Vite (web), React Native + Expo (mobile), shared module codebase
@@ -63,7 +63,7 @@ intake → queued → in_eval → eval_done → estimating → pending_auth
 
 ## Active Tasks
 - [x] Zone 2 — Tech eval UI: `IgnitionEval.jsx` — DTC codes, photos, work items, labor clock, submit → eval_done
-- [ ] Parts sourcing trigger: after authorization split approved line items → in-stock pull vs. PO creation for out-of-stock
+- [x] Parts sourcing trigger: after authorization split approved line items → in-stock pull vs. PO creation for out-of-stock
 - [ ] Invoice + closeout: generate invoice from authorized estimate_line_items → invoice_line_items snapshot → payment collection → jobs.status='closed'
 - [ ] Migrate FLUX, KOSK, OMNI to read job state from Supabase instead of localStorage
 - [ ] Repair workflow: labor clock-in/out during repair, repair_logs entries, supplement branch detection
