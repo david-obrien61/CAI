@@ -7,11 +7,61 @@
 ## Handoff
 > This section is rewritten at the end of every session by whichever AI is finishing.
 > Read this first — it tells you exactly where to pick up.
+> **CRITICAL:** ALWAYS update the handoff note before we lose context. I do not want to lose any effort.
+
+# PROJECT: ignition-os
+# STATUS: ACTIVE DEVELOPMENT
+# CURRENT AI: Claude  ← update when you switch
 
 - **Completed this session:** Built the AI-Driven Parts Sourcing Pipeline. Created `inventory` table migration. Migrated `IgnitionStok.jsx` to Supabase. Added routing priority to vendor directory in `DataBridge.js` and `IgnitionProc.jsx`. Built `_source_parts()` AI engine in `shop_estimate.py` to auto-check inventory and fallback to highest priority vendor. Built server-side `POST /api/jobs/{job_id}/generate-pos` and wired it to customer signature callback in `IgnitionEstimate.jsx`.
 - **Next task:** Backlog features (Margin pricing UI, PDF generation, Hardware ledger) or further agent refinement.
-- **Prerequisite note for pilot:** `eval-photos` Supabase Storage bucket must be created manually in the Supabase dashboard before photo upload in `IgnitionEval.jsx` works. Bucket name: `eval-photos`, set to public. Also MUST RUN `supabase_inventory_migration.sql` to create the `inventory` table.
-- **Session ended by:** Gemini — 2026-05-07
+- **Last file edited:** _(update before handoff)_
+- **Last command run:** _(update before handoff)_
+- **Tests passing:** _(update before handoff)_
+- **Session ended by:** Claude — 2026-05-07
+
+**Prerequisite status:**
+- `supabase_inventory_migration.sql` — DONE (run 2026-05-07)
+- `eval-photos` Supabase Storage bucket — NOT DONE. Must be created manually in the Supabase dashboard. Bucket name: `eval-photos`, set to public. Required before photo upload works.
+
+## Dev Commands
+
+**Start everything (recommended):**
+```bash
+./start.sh          # starts FastAPI :8000 + Vite :5173 + Expo mobile
+./start.sh --stop   # kills all three servers
+```
+
+**Individual servers:**
+```bash
+npm run dev                                                        # Vite web only → http://localhost:5173
+npm run build                                                      # production web build → dist/
+source venv/bin/activate && uvicorn shop_estimate:app --reload --port 8000  # FastAPI only
+```
+
+**Python environment setup (first time):**
+```bash
+python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt
+```
+
+**Logs:** `.logs/python.log` and `.logs/web.log` (created by `start.sh`)
+
+**API docs (FastAPI auto-generated):** `http://localhost:8000/docs`
+
+## Environment Variables
+
+Create a `.env` file in the project root:
+```
+GEMINI_API_KEY=
+ANTHROPIC_API_KEY=
+OPENAI_API_KEY=
+VITE_SUPABASE_URL=
+VITE_SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_KEY=
+VITE_API_URL=        # Railway backend URL for production; http://localhost:8000 for local
+```
+
+The Python backend reads these via `python-dotenv`. The Vite frontend reads `VITE_*` vars at build time.
 
 **Collaboration workflow:**
 1. Generate feature specs or code snippets in Gemini web session
@@ -22,13 +72,18 @@
 
 ## Architecture
 - **Frontend:** React + Vite (web), React Native + Expo (mobile), shared module codebase
-- **Routing:** `CoreApp.jsx` — `activeModule` string switches rendered module; `AccessGatekeeper` wraps modules with `requiredPermissions`
+- **Routing:** `CoreApp.jsx` — `activeModule` string state switches rendered module; `AccessGatekeeper` wraps modules with `requiredPermissions`
 - **Backend:** Python FastAPI on Railway — `ai_router.py` (core app + shared clients), `shop_estimate.py` (estimate agent), `monitor.py` (health)
-- **Database:** Supabase (PostgreSQL) — source of truth for all state. Tables scoped by shop_id.
+- **Database:** Supabase (PostgreSQL) at ufsgqckbxdtwviqjjtos.supabase.co — source of truth for all state
 - **Local state:** `DataBridge.js` localStorage — device-private scratchpad only, never source of truth
-- **AI bundle:** Claude (reasoning + estimate agent), Gemini (vision), OpenAI Whisper (voice)
-- **Styling:** Tailwind CSS — dark slate palette, high-contrast shop floor UI
-- **Icons:** Lucide React only
+- **AI bundle:** Claude (reasoning + estimate agent via Haiku), Gemini (vision), OpenAI Whisper (voice)
+- **Auth:** SHA-256 PIN hashing browser-native via `crypto.subtle.digest`, salted with shopId
+- **Env:** `VITE_API_URL` for all Railway calls — never hardcode localhost
+
+**Dual-runtime file naming:**
+- `ModuleName.jsx` — web (React + Vite)
+- `ModuleName.native.js` — React Native / Expo mobile
+- Both live in `modules/`. When editing a module, check if a `.native.js` counterpart exists and needs the same change.
 
 **Key design decisions (generate code that respects these):**
 - Supabase is source of truth. localStorage is scratchpad only.
@@ -36,15 +91,28 @@
 - Legal authorization snapshot (`customer_authorizations`) is immutable once written — UUID arrays frozen at auth time.
 - Invoice line items are immutable snapshots. Never update after creation.
 - Tax on parts only: `tax = subtotal_parts × taxRate`. Labor is not taxed.
+- `_get_labor_hours()` in shop_estimate.py is the Mitchell1/AllData swap point — change only that function body, pipeline unchanged.
+- `_source_parts()` in shop_estimate.py is the vendor API swap point — same isolation pattern.
 - All SQL migrations must include `DROP TRIGGER/POLICY IF EXISTS` guards — must be re-runnable.
 - Never hardcode localhost. Always use `VITE_API_URL` env var for Railway backend calls.
-- RLS pilot pattern: `CREATE POLICY "pilot_all" FOR ALL USING (true) WITH CHECK (true)` on every table.
+- RLS pilot pattern: `DROP POLICY IF EXISTS` + `CREATE POLICY "pilot_all" FOR ALL USING (true) WITH CHECK (true)` on every table.
 
 **Job lifecycle state machine:**
 ```
 intake → queued → in_eval → eval_done → estimating → pending_auth
 → authorized → in_repair → supplement → repair_done → invoiced → closed
 ```
+
+**Migration run order:**
+1. supabase_schema.sql
+2. supabase_rls_pilot.sql
+3. supabase_identity_v2_migration.sql
+4. supabase_team_system_migration.sql
+5. supabase_job_lifecycle_migration.sql
+6. supabase_concept_aliases_migration.sql
+7. supabase_error_events_migration.sql
+8. supabase_feature_events_migration.sql
+9. supabase_monitoring_alerts_migration.sql
 
 **Module build status:**
 - `IgnitionIntake.jsx` ✅ — 3-phase intake form, writes customers/customer_vehicles/jobs to Supabase
@@ -84,7 +152,7 @@ intake → queued → in_eval → eval_done → estimating → pending_auth
 **Backlog (post-pilot):**
 - [ ] Slab margin pricing engine UI (MarginEngine.js exists, needs wiring into estimate flow)
 - [ ] PDF invoice and DOT form generation
-- [ ] Hardware ledger and tool tracking
+- [ ] Hardware ledger and tool tracking (STOK extension)
 - [ ] Velocity leaderboard in OMNI (efficiency % per tech, management toggle)
 - [ ] Multi-location registry and quick-dial hub
 - [ ] 14-day trial savings report (conversion hook)
@@ -122,7 +190,7 @@ intake → queued → in_eval → eval_done → estimating → pending_auth
 - **Icons:** Lucide React only
 - **No emojis** in code or UI
 - **No comments** unless the WHY is non-obvious
-- **Naming:** PascalCase components, camelCase functions/variables
+- **Naming:** PascalCase components, camelCase functions/variables, SCREAMING_SNAKE for constants
 - **UI heading style:** `text-white font-black italic uppercase tracking-tighter`
 - **Primary CTA buttons:** `py-4 rounded-2xl font-black uppercase tracking-widest text-[10px]`
 - **Status badges:** `text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded border`
