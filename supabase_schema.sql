@@ -140,10 +140,12 @@ returns trigger as $$
 begin new.updated_at = now(); return new; end;
 $$ language plpgsql;
 
+drop trigger if exists jobs_updated_at on jobs;
 create trigger jobs_updated_at
   before update on jobs
   for each row execute function set_updated_at();
 
+drop trigger if exists po_updated_at on purchase_orders;
 create trigger po_updated_at
   before update on purchase_orders
   for each row execute function set_updated_at();

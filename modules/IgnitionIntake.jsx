@@ -1,440 +1,658 @@
 /**
- * FILE: IgnitionIntake.jsx
- * PLATFORM: Mobile (React Native)
- * PURPOSE: Vehicle intake form. Captures all fields required to generate a complete
- *          work order. VIN validation is handled separately by IgnitionVIN.
+ * MODULE: IgnitionIntake (Web)
+ * VERSION: v1.0.0
+ * DESC: Zone 1 intake form. Creates customer, vehicle, and job rows in Supabase.
+ *       Three-phase flow: Customer → Vehicle → Job Details → Commit.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
-  StyleSheet, Text, View, TextInput, TouchableOpacity,
-  ScrollView, KeyboardAvoidingView, Platform
-} from 'react-native';
-import {
-  User, Phone, Mail, Car, ChevronRight, AlertCircle,
-  ShieldCheck, Search, XCircle, CheckCircle2, Gauge,
-  CreditCard, MessageSquare, ClipboardList
-} from 'lucide-react-native';
-import * as Haptics from 'expo-haptics';
+  User, Phone, Mail, Car, ChevronRight, AlertCircle, Gauge,
+  Calendar, Plus, Search, X, CheckCircle2, ClipboardList,
+  ArrowLeft, Loader2, Clock, ShieldCheck,
+} from 'lucide-react';
+import { supabase } from '../supabase';
 import DataBridge from '../DataBridge';
 
-export default function IgnitionIntake({ onComplete }) {
-  const [customers]         = useState(() => DataBridge.getCustomers() || []);
-  const [selectedCustomer,  setSelectedCustomer]  = useState(null);
+// ─── helpers ─────────────────────────────────────────────────────────────────
 
-  const [formData, setFormData] = useState({
-    // Customer
-    name:        '',
-    phone:       '',
-    email:       '',
-    // Vehicle
-    year:        '',
-    make:        '',
-    model:       '',
-    licensePlate:'',
-    milesIn:     '',
-    // Job
-    complaint:   '',
-    advisories:  '',     // pre-existing conditions / deferred items
-  });
-  const [nameError, setNameError] = useState('');
+const SectionLabel = ({ children }) => (
+  <div className="flex items-center gap-3 my-6">
+    <div className="flex-1 h-px bg-slate-800" />
+    <span className="text-[9px] font-black uppercase tracking-widest text-slate-600">{children}</span>
+    <div className="flex-1 h-px bg-slate-800" />
+  </div>
+);
 
-  // Service advisor auto-stamped from current logged-in user
-  const currentUser     = DataBridge.load('current_user');
-  const serviceAdvisor  = currentUser?.name || 'UNASSIGNED';
+const Field = ({ label, children, hint }) => (
+  <div className="mb-4">
+    <label className="block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">{label}</label>
+    {children}
+    {hint && <p className="text-[9px] text-slate-700 mt-1.5 font-bold">{hint}</p>}
+  </div>
+);
 
-  // ── CRM auto-search ────────────────────────────────────────────────────────
-  const nameMatches = formData.name.length > 1
-    ? customers.filter(c => c.name.toLowerCase().includes(formData.name.toLowerCase()))
-    : [];
+const TextInput = ({ icon: Icon, ...props }) => (
+  <div className="flex items-center bg-slate-900 border border-slate-800 rounded-xl px-4 focus-within:border-blue-500 transition-colors">
+    {Icon && <Icon size={16} className="text-slate-500 mr-3 flex-shrink-0" />}
+    <input
+      className="flex-1 bg-transparent py-4 text-white text-sm font-semibold outline-none placeholder-slate-600"
+      {...props}
+    />
+  </div>
+);
 
-  const phoneMatches = formData.phone.length > 3 && formData.name.length <= 1
-    ? customers.filter(c => c.phone.includes(formData.phone))
-    : [];
+const Textarea = ({ icon: Icon, ...props }) => (
+  <div className="flex items-start bg-slate-900 border border-slate-800 rounded-xl px-4 pt-4 focus-within:border-blue-500 transition-colors">
+    {Icon && <Icon size={16} className="text-slate-500 mr-3 mt-0.5 flex-shrink-0" />}
+    <textarea
+      className="flex-1 bg-transparent pb-4 text-white text-sm font-semibold outline-none placeholder-slate-600 resize-none"
+      rows={3}
+      {...props}
+    />
+  </div>
+);
 
-  const selectCustomer = (c) => {
+const PhaseBar = ({ phase }) => {
+  const steps = ['customer', 'vehicle', 'job'];
+  const labels = ['Customer', 'Vehicle', 'Job Details'];
+  return (
+    <div className="flex items-center gap-2 mb-8">
+      {steps.map((s, i) => (
+        <React.Fragment key={s}>
+          <div className={`flex items-center gap-2 ${phase === s ? 'opacity-100' : steps.indexOf(phase) > i ? 'opacity-60' : 'opacity-20'}`}>
+            <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black border ${
+              steps.indexOf(phase) > i ? 'bg-emerald-600 border-emerald-600 text-white' :
+              phase === s ? 'bg-blue-600 border-blue-600 text-white' :
+              'border-slate-700 text-slate-500'
+            }`}>{steps.indexOf(phase) > i ? '✓' : i + 1}</div>
+            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">{labels[i]}</span>
+          </div>
+          {i < 2 && <div className="flex-1 h-px bg-slate-800" />}
+        </React.Fragment>
+      ))}
+    </div>
+  );
+};
+
+// ─── main component ───────────────────────────────────────────────────────────
+
+export default function IgnitionIntake({ onJobCreated, onBack }) {
+  const currentUser = DataBridge.load('current_user');
+  const shopId = currentUser?.shop_id || DataBridge.load('shop_info')?.id;
+
+  const [phase, setPhase] = useState('customer');
+
+  // Customer
+  const [search, setSearch] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [selectedCustomer, setSelectedCustomer] = useState(null);
+  const [isNewCustomer, setIsNewCustomer] = useState(false);
+  const [newCust, setNewCust] = useState({ first_name: '', last_name: '', phone: '', email: '' });
+
+  // Vehicle
+  const [vehicles, setVehicles] = useState([]);
+  const [selectedVehicle, setSelectedVehicle] = useState(null);
+  const [isNewVehicle, setIsNewVehicle] = useState(false);
+  const [newVeh, setNewVeh] = useState({ year: '', make: '', model: '', trim: '', vin: '', license_plate: '', color: '' });
+
+  // Job
+  const [complaint, setComplaint] = useState('');
+  const [mileageIn, setMileageIn] = useState('');
+  const [promisedAt, setPromisedAt] = useState('');
+  const [waiting, setWaiting] = useState(false);
+  const [advisories, setAdvisories] = useState('');
+
+  // UI
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const debounce = useRef(null);
+
+  // ── debounced Supabase customer search ──────────────────────────────────────
+  useEffect(() => {
+    if (search.length < 2) { setSearchResults([]); return; }
+    clearTimeout(debounce.current);
+    debounce.current = setTimeout(async () => {
+      setSearching(true);
+      const { data } = await supabase.from('customers').select('*')
+        .eq('shop_id', shopId)
+        .or(`phone.ilike.%${search}%,last_name.ilike.%${search}%,first_name.ilike.%${search}%`)
+        .limit(6);
+      setSearchResults(data || []);
+      setSearching(false);
+    }, 300);
+  }, [search]);
+
+  // ── phase transitions ───────────────────────────────────────────────────────
+
+  const selectCustomer = async (c) => {
     setSelectedCustomer(c);
-    setFormData(p => ({ ...p, name: c.name, phone: c.phone, email: c.email || '' }));
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setSearch('');
+    setSearchResults([]);
+    setIsNewCustomer(false);
+    const { data } = await supabase.from('customer_vehicles').select('*')
+      .eq('customer_id', c.id).order('created_at', { ascending: false });
+    setVehicles(data || []);
+    setPhase('vehicle');
   };
 
-  const clearCustomer = () => {
-    setSelectedCustomer(null);
-    setFormData(p => ({ ...p, name: '', phone: '', email: '', year: '', make: '', model: '', licensePlate: '' }));
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  const confirmNewCustomer = () => {
+    if (!newCust.first_name.trim() || !newCust.phone.trim()) {
+      setError('First name and phone are required.');
+      return;
+    }
+    setError('');
+    setSelectedCustomer({ ...newCust, _isNew: true });
+    setVehicles([]);
+    setIsNewCustomer(false);
+    setPhase('vehicle');
   };
 
   const selectVehicle = (v) => {
-    setFormData(p => ({
-      ...p,
-      year:         String(v.year || ''),
-      make:         v.make  || '',
-      model:        v.model || '',
-      licensePlate: v.licensePlate || '',
-    }));
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setSelectedVehicle(v);
+    setIsNewVehicle(false);
+    setPhase('job');
   };
 
-  // ── Submit ─────────────────────────────────────────────────────────────────
-  const handleSave = () => {
-    if (formData.name.trim().length < 2) {
-      setNameError('Full name required (at least 2 characters)');
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+  const confirmNewVehicle = () => {
+    if (!newVeh.make.trim() || !newVeh.model.trim()) {
+      setError('Make and model are required.');
       return;
     }
-    if (!formData.model.trim()) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-      return;
-    }
-    setNameError('');
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-
-    const jobId = `JOB-${Math.floor(1000 + Math.random() * 9000)}`;
-
-    onComplete({
-      ...formData,
-      jobId,
-      serviceAdvisor,
-      customerId:   selectedCustomer?.id   || null,
-      customerTier: selectedCustomer?.tier || 'STANDARD',
-      milesIn:      parseInt(formData.milesIn.replace(/\D/g, '')) || 0,
-      createdAt:    new Date().toISOString(),
-    });
+    setError('');
+    setSelectedVehicle({ ...newVeh, _isNew: true });
+    setIsNewVehicle(false);
+    setPhase('job');
   };
 
-  const set = (field) => (val) => setFormData(p => ({ ...p, [field]: val }));
+  // ── final submit ────────────────────────────────────────────────────────────
 
+  const handleSubmit = async () => {
+    if (!complaint.trim()) { setError('Primary complaint is required.'); return; }
+    setError('');
+    setSaving(true);
+
+    try {
+      // 1. Upsert customer
+      let customerId = selectedCustomer?.id;
+      if (selectedCustomer?._isNew) {
+        const { data: cust, error: e } = await supabase.from('customers').insert({
+          shop_id: shopId,
+          first_name: newCust.first_name.trim(),
+          last_name:  newCust.last_name.trim() || null,
+          phone:      newCust.phone.trim(),
+          email:      newCust.email.trim() || null,
+        }).select().single();
+        if (e) throw e;
+        customerId = cust.id;
+      }
+
+      // 2. Upsert vehicle
+      let vehicleId = selectedVehicle?.id;
+      const mileageNum = parseInt(mileageIn.replace(/\D/g, '')) || null;
+      if (selectedVehicle?._isNew) {
+        const { data: veh, error: e } = await supabase.from('customer_vehicles').insert({
+          shop_id:       shopId,
+          customer_id:   customerId,
+          year:          newVeh.year.trim()          || null,
+          make:          newVeh.make.trim()          || null,
+          model:         newVeh.model.trim()         || null,
+          trim:          newVeh.trim.trim()          || null,
+          vin:           newVeh.vin.trim()           || null,
+          license_plate: newVeh.license_plate.trim() || null,
+          color:         newVeh.color.trim()         || null,
+          mileage_last:  mileageNum,
+        }).select().single();
+        if (e) throw e;
+        vehicleId = veh.id;
+      } else if (vehicleId && mileageNum) {
+        // update mileage on existing vehicle
+        await supabase.from('customer_vehicles').update({ mileage_last: mileageNum }).eq('id', vehicleId);
+      }
+
+      // 3. Create job
+      const veh  = selectedVehicle;
+      const cust = selectedCustomer;
+      const woNum = `RO-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+
+      const { data: job, error: e } = await supabase.from('jobs').insert({
+        shop_id:          shopId,
+        wo_number:        woNum,
+        status:           'intake',
+        customer_id:      customerId,
+        vehicle_id:       vehicleId,
+        service_writer_id: currentUser?.member_id || null,
+        complaint:        complaint.trim(),
+        mileage_in:       mileageNum,
+        promised_at:      promisedAt || null,
+        waiting_status:   waiting,
+        notes:            advisories.trim() || null,
+        // jsonb snapshots keep old modules working
+        customer: {
+          name:  `${cust.first_name || ''} ${cust.last_name || ''}`.trim(),
+          phone: cust.phone,
+          email: cust.email || null,
+        },
+        vehicle: {
+          year:         veh.year,
+          make:         veh.make,
+          model:        veh.model,
+          vin:          veh.vin  || null,
+          licensePlate: veh.license_plate || null,
+        },
+      }).select().single();
+      if (e) throw e;
+
+      onJobCreated?.(job);
+    } catch (err) {
+      setError(err.message || 'Failed to create RO. Try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // RENDER
   // ─────────────────────────────────────────────────────────────────────────
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={styles.container}
-      keyboardVerticalOffset={100}
-    >
-      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+    <div className="min-h-screen bg-slate-950 p-6 pb-32">
+      <div className="max-w-xl mx-auto">
 
-        {/* HEADER */}
-        <View style={styles.header}>
-          <Text style={styles.versionTag}>INTAKE.CoreApp.002</Text>
-          <Text style={styles.title}>VEHICLE INTAKE</Text>
-          <Text style={styles.subtitle}>ESTABLISH PRELIMINARY DATA BRIDGE</Text>
-        </View>
+        {/* Header */}
+        <div className="mb-6 flex items-center gap-4">
+          {onBack && (
+            <button onClick={onBack} className="text-slate-500 hover:text-white transition-colors">
+              <ArrowLeft size={20} />
+            </button>
+          )}
+          <div>
+            <h1 className="text-2xl font-black italic text-white uppercase tracking-tighter">New Repair Order</h1>
+            <p className="text-[10px] font-mono text-slate-500 uppercase tracking-widest">
+              {currentUser?.name ? `Service Advisor: ${currentUser.name}` : 'ZONE 1 // INTAKE'}
+            </p>
+          </div>
+        </div>
 
-        {/* SERVICE ADVISOR STAMP */}
-        <View style={styles.advisorStamp}>
-          <ShieldCheck color="#3b82f6" size={14} />
-          <Text style={styles.advisorText}>Service Advisor: <Text style={styles.advisorName}>{serviceAdvisor}</Text></Text>
-        </View>
+        <PhaseBar phase={phase} />
 
-        {/* ── SELECTED CUSTOMER CARD ── */}
-        {selectedCustomer && (
-          <View style={styles.selectedCard}>
-            <View style={styles.selectedCardHeader}>
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <User color="#818cf8" size={20} />
-                <View style={{ marginLeft: 10 }}>
-                  <Text style={styles.selectedName}>{selectedCustomer.name}</Text>
-                  <Text style={styles.selectedMeta}>{selectedCustomer.tier} TIER // {selectedCustomer.phone}</Text>
-                </View>
-              </View>
-              <TouchableOpacity onPress={clearCustomer}>
-                <XCircle color="#ef4444" size={24} />
-              </TouchableOpacity>
-            </View>
+        {error && (
+          <div className="bg-red-900/20 border border-red-500/40 rounded-xl px-4 py-3 mb-6 flex items-center gap-3">
+            <AlertCircle size={16} className="text-red-400 flex-shrink-0" />
+            <p className="text-red-400 text-xs font-bold">{error}</p>
+            <button onClick={() => setError('')} className="ml-auto text-red-500"><X size={14} /></button>
+          </div>
+        )}
 
-            {/* Registered vehicles */}
-            {selectedCustomer.vehicles?.length > 0 && (
-              <View style={styles.vehicleList}>
-                <Text style={styles.label}>SELECT REGISTERED ASSET</Text>
-                {selectedCustomer.vehicles.map((v, i) => {
-                  const active = formData.make === v.make && formData.model === v.model;
-                  return (
-                    <TouchableOpacity
-                      key={i}
-                      style={[styles.vehicleOption, active && styles.vehicleOptionActive]}
-                      onPress={() => selectVehicle(v)}
-                    >
-                      <View>
-                        <Text style={[styles.vehicleText, active && { color: '#10b981' }]}>
-                          {v.year} {v.make} {v.model}
-                        </Text>
-                        <Text style={styles.vehicleVin}>VIN: {(v.vin || '').slice(-6)}</Text>
-                      </View>
-                      {active && <CheckCircle2 color="#10b981" size={20} />}
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
+        {/* ═══════════════════════════════════════════════════════
+            PHASE 1 — CUSTOMER
+        ═══════════════════════════════════════════════════════ */}
+        {phase === 'customer' && (
+          <div>
+            <SectionLabel>Find or Create Customer</SectionLabel>
+
+            {!isNewCustomer ? (
+              <>
+                {/* Search */}
+                <Field label="Search by name or phone">
+                  <div className="relative">
+                    <div className="flex items-center bg-slate-900 border border-slate-800 rounded-xl px-4 focus-within:border-blue-500 transition-colors">
+                      <Search size={16} className="text-slate-500 mr-3 flex-shrink-0" />
+                      <input
+                        className="flex-1 bg-transparent py-4 text-white text-sm font-semibold outline-none placeholder-slate-600"
+                        placeholder="Mike Torres / (512) 555…"
+                        value={search}
+                        onChange={e => setSearch(e.target.value)}
+                        autoFocus
+                      />
+                      {searching && <Loader2 size={14} className="text-blue-400 animate-spin" />}
+                      {search && !searching && (
+                        <button onClick={() => { setSearch(''); setSearchResults([]); }}>
+                          <X size={14} className="text-slate-500" />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Results dropdown */}
+                    {searchResults.length > 0 && (
+                      <div className="absolute top-full left-0 right-0 mt-2 bg-slate-900 border border-slate-700 rounded-xl overflow-hidden z-20 shadow-2xl">
+                        {searchResults.map(c => (
+                          <button
+                            key={c.id}
+                            onClick={() => selectCustomer(c)}
+                            className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-800 border-b border-slate-800 last:border-0 transition-colors"
+                          >
+                            <div className="text-left">
+                              <p className="text-white text-sm font-bold">{c.first_name} {c.last_name}</p>
+                              <p className="text-slate-500 text-xs">{c.phone}{c.email ? ` · ${c.email}` : ''}</p>
+                            </div>
+                            <ChevronRight size={16} className="text-slate-600" />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </Field>
+
+                <div className="flex items-center gap-4 my-6">
+                  <div className="flex-1 h-px bg-slate-800" />
+                  <span className="text-[9px] text-slate-700 font-black uppercase tracking-widest">or</span>
+                  <div className="flex-1 h-px bg-slate-800" />
+                </div>
+
+                <button
+                  onClick={() => { setIsNewCustomer(true); setError(''); }}
+                  className="w-full flex items-center justify-center gap-2 bg-slate-900 border border-slate-700 hover:border-blue-500 text-white font-black py-4 rounded-xl uppercase tracking-widest text-[10px] transition-all active:scale-95"
+                >
+                  <Plus size={14} /> New Customer
+                </button>
+              </>
+            ) : (
+              /* New customer form */
+              <>
+                <div className="grid grid-cols-2 gap-4">
+                  <Field label="First Name *">
+                    <TextInput
+                      icon={User}
+                      placeholder="Mike"
+                      value={newCust.first_name}
+                      onChange={e => setNewCust(p => ({ ...p, first_name: e.target.value }))}
+                      autoFocus
+                    />
+                  </Field>
+                  <Field label="Last Name">
+                    <TextInput
+                      placeholder="Torres"
+                      value={newCust.last_name}
+                      onChange={e => setNewCust(p => ({ ...p, last_name: e.target.value }))}
+                    />
+                  </Field>
+                </div>
+                <Field label="Phone *">
+                  <TextInput
+                    icon={Phone}
+                    type="tel"
+                    placeholder="(512) 555-0199"
+                    value={newCust.phone}
+                    onChange={e => setNewCust(p => ({ ...p, phone: e.target.value }))}
+                  />
+                </Field>
+                <Field label="Email (for estimates & invoices)">
+                  <TextInput
+                    icon={Mail}
+                    type="email"
+                    placeholder="mike@email.com"
+                    value={newCust.email}
+                    onChange={e => setNewCust(p => ({ ...p, email: e.target.value }))}
+                  />
+                </Field>
+
+                <div className="flex gap-3 mt-6">
+                  <button
+                    onClick={() => { setIsNewCustomer(false); setError(''); }}
+                    className="flex-1 bg-slate-900 border border-slate-800 text-slate-400 font-black py-4 rounded-xl uppercase tracking-widest text-[10px] hover:border-slate-600 transition-all"
+                  >
+                    Back to Search
+                  </button>
+                  <button
+                    onClick={confirmNewCustomer}
+                    className="flex-2 min-w-[60%] bg-blue-600 hover:bg-blue-500 text-white font-black py-4 rounded-xl uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 transition-all active:scale-95 shadow-lg shadow-blue-900/30"
+                  >
+                    Continue <ChevronRight size={14} />
+                  </button>
+                </div>
+              </>
             )}
-          </View>
+          </div>
         )}
 
-        {/* ── CUSTOMER SEARCH (new customer) ── */}
-        {!selectedCustomer && (
-          <>
-            <SectionHeader label="CUSTOMER" />
+        {/* ═══════════════════════════════════════════════════════
+            PHASE 2 — VEHICLE
+        ═══════════════════════════════════════════════════════ */}
+        {phase === 'vehicle' && (
+          <div>
+            {/* Customer summary */}
+            <div className="flex items-center justify-between bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 mb-6">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 bg-indigo-500/10 rounded-lg flex items-center justify-center">
+                  <User size={16} className="text-indigo-400" />
+                </div>
+                <div>
+                  <p className="text-white text-sm font-black">
+                    {selectedCustomer?.first_name} {selectedCustomer?.last_name}
+                  </p>
+                  <p className="text-slate-500 text-xs">{selectedCustomer?.phone}</p>
+                </div>
+              </div>
+              <button onClick={() => { setPhase('customer'); setSelectedCustomer(null); }} className="text-slate-600 hover:text-slate-400">
+                <X size={16} />
+              </button>
+            </div>
 
-            <Field label="CUSTOMER NAME (AUTO-SEARCH)">
-              <InputBox icon={<User color={nameError ? "#ef4444" : "#3b82f6"} size={18} />} highlight={nameMatches.length > 0}>
-                <TextInput
-                  style={styles.input}
-                  value={formData.name}
-                  onChangeText={(val) => { set('name')(val); if (nameError) setNameError(''); }}
-                  placeholder="Full Name"
-                  placeholderTextColor="#475569"
-                />
-              </InputBox>
-              {nameError ? <Text style={{ color: '#ef4444', fontSize: 11, fontWeight: '700', marginTop: 4, paddingHorizontal: 4 }}>{nameError}</Text> : null}
-              {nameMatches.length > 0 && (
-                <SearchResults matches={nameMatches} onSelect={selectCustomer} />
-              )}
-            </Field>
+            <SectionLabel>Select or Add Vehicle</SectionLabel>
 
-            <Field label="CONTACT PHONE">
-              <InputBox icon={<Phone color="#3b82f6" size={18} />}>
-                <TextInput
-                  style={styles.input}
-                  value={formData.phone}
-                  onChangeText={set('phone')}
-                  placeholder="(555) 000-0000"
-                  keyboardType="phone-pad"
-                  placeholderTextColor="#475569"
-                />
-              </InputBox>
-              {phoneMatches.length > 0 && (
-                <SearchResults matches={phoneMatches} onSelect={selectCustomer} />
-              )}
-            </Field>
+            {/* Existing vehicles */}
+            {vehicles.length > 0 && !isNewVehicle && (
+              <div className="space-y-3 mb-6">
+                {vehicles.map(v => (
+                  <button
+                    key={v.id}
+                    onClick={() => selectVehicle(v)}
+                    className="w-full flex items-center justify-between bg-slate-900 border border-slate-800 hover:border-blue-500 px-4 py-4 rounded-xl transition-all active:scale-[0.98]"
+                  >
+                    <div className="flex items-center gap-3 text-left">
+                      <Car size={18} className="text-slate-500" />
+                      <div>
+                        <p className="text-white font-bold text-sm">{v.year} {v.make} {v.model}{v.trim ? ` ${v.trim}` : ''}</p>
+                        <p className="text-slate-500 text-xs">
+                          {v.license_plate && `${v.license_plate} · `}
+                          {v.vin ? `VIN …${v.vin.slice(-6)}` : 'No VIN'}
+                          {v.mileage_last ? ` · ${v.mileage_last.toLocaleString()} mi` : ''}
+                        </p>
+                      </div>
+                    </div>
+                    <ChevronRight size={16} className="text-slate-600" />
+                  </button>
+                ))}
+              </div>
+            )}
 
-            <Field label="EMAIL (for estimates & invoices)">
-              <InputBox icon={<Mail color="#3b82f6" size={18} />}>
-                <TextInput
-                  style={styles.input}
-                  value={formData.email}
-                  onChangeText={set('email')}
-                  placeholder="customer@email.com"
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  placeholderTextColor="#475569"
-                />
-              </InputBox>
-            </Field>
-          </>
+            {/* New vehicle form */}
+            {isNewVehicle ? (
+              <>
+                <div className="grid grid-cols-3 gap-3">
+                  <Field label="Year">
+                    <TextInput
+                      placeholder="2019"
+                      value={newVeh.year}
+                      onChange={e => setNewVeh(p => ({ ...p, year: e.target.value }))}
+                      maxLength={4}
+                    />
+                  </Field>
+                  <Field label="Make *">
+                    <TextInput
+                      placeholder="Toyota"
+                      value={newVeh.make}
+                      onChange={e => setNewVeh(p => ({ ...p, make: e.target.value }))}
+                      autoFocus
+                    />
+                  </Field>
+                  <Field label="Model *">
+                    <TextInput
+                      placeholder="Camry"
+                      value={newVeh.model}
+                      onChange={e => setNewVeh(p => ({ ...p, model: e.target.value }))}
+                    />
+                  </Field>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Trim / Sub-Model">
+                    <TextInput
+                      placeholder="LE / SE / XSE"
+                      value={newVeh.trim}
+                      onChange={e => setNewVeh(p => ({ ...p, trim: e.target.value }))}
+                    />
+                  </Field>
+                  <Field label="Color">
+                    <TextInput
+                      placeholder="Silver"
+                      value={newVeh.color}
+                      onChange={e => setNewVeh(p => ({ ...p, color: e.target.value }))}
+                    />
+                  </Field>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="License Plate">
+                    <TextInput
+                      placeholder="DL2Z482"
+                      value={newVeh.license_plate}
+                      onChange={e => setNewVeh(p => ({ ...p, license_plate: e.target.value.toUpperCase() }))}
+                    />
+                  </Field>
+                  <Field label="VIN">
+                    <TextInput
+                      placeholder="1HGBH41…"
+                      value={newVeh.vin}
+                      onChange={e => setNewVeh(p => ({ ...p, vin: e.target.value.toUpperCase() }))}
+                    />
+                  </Field>
+                </div>
+
+                <div className="flex gap-3 mt-4">
+                  <button
+                    onClick={() => { setIsNewVehicle(false); setError(''); }}
+                    className="flex-1 bg-slate-900 border border-slate-800 text-slate-400 font-black py-4 rounded-xl uppercase tracking-widest text-[10px] hover:border-slate-600 transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={confirmNewVehicle}
+                    className="flex-2 min-w-[60%] bg-blue-600 hover:bg-blue-500 text-white font-black py-4 rounded-xl uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 transition-all active:scale-95 shadow-lg shadow-blue-900/30"
+                  >
+                    Continue <ChevronRight size={14} />
+                  </button>
+                </div>
+              </>
+            ) : (
+              <button
+                onClick={() => { setIsNewVehicle(true); setError(''); }}
+                className="w-full flex items-center justify-center gap-2 bg-slate-900 border border-slate-700 hover:border-blue-500 text-white font-black py-4 rounded-xl uppercase tracking-widest text-[10px] transition-all active:scale-95 mt-2"
+              >
+                <Plus size={14} /> {vehicles.length > 0 ? 'Different Vehicle' : 'Add Vehicle'}
+              </button>
+            )}
+          </div>
         )}
 
-        {/* ── VEHICLE ── */}
-        <SectionHeader label="VEHICLE" />
+        {/* ═══════════════════════════════════════════════════════
+            PHASE 3 — JOB DETAILS
+        ═══════════════════════════════════════════════════════ */}
+        {phase === 'job' && (
+          <div>
+            {/* Customer + Vehicle summary */}
+            <div className="bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 mb-6 space-y-2">
+              <div className="flex items-center gap-3">
+                <User size={14} className="text-indigo-400" />
+                <span className="text-white text-sm font-bold">
+                  {selectedCustomer?.first_name} {selectedCustomer?.last_name}
+                </span>
+                <span className="text-slate-600 text-xs">{selectedCustomer?.phone}</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <Car size={14} className="text-blue-400" />
+                <span className="text-white text-sm font-bold">
+                  {selectedVehicle?.year} {selectedVehicle?.make} {selectedVehicle?.model}
+                  {selectedVehicle?.trim ? ` ${selectedVehicle.trim}` : ''}
+                </span>
+                {selectedVehicle?.license_plate && (
+                  <span className="text-slate-600 text-xs">{selectedVehicle.license_plate}</span>
+                )}
+              </div>
+              <button
+                onClick={() => setPhase('vehicle')}
+                className="text-[9px] text-slate-600 hover:text-slate-400 font-black uppercase tracking-widest mt-1 transition-colors"
+              >
+                ← Change vehicle
+              </button>
+            </div>
 
-        <View style={styles.row}>
-          <View style={{ flex: 1, marginRight: 10 }}>
-            <Field label="YEAR">
-              <InputBox icon={<Car color="#3b82f6" size={18} />}>
-                <TextInput
-                  style={styles.input}
-                  value={formData.year}
-                  onChangeText={set('year')}
-                  placeholder="2005"
-                  keyboardType="numeric"
-                  maxLength={4}
-                  placeholderTextColor="#475569"
-                />
-              </InputBox>
-            </Field>
-          </View>
-          <View style={{ flex: 2 }}>
-            <Field label="MAKE">
-              <InputBox icon={<Car color="#3b82f6" size={18} />}>
-                <TextInput
-                  style={styles.input}
-                  value={formData.make}
-                  onChangeText={set('make')}
-                  placeholder="Toyota"
-                  placeholderTextColor="#475569"
-                />
-              </InputBox>
-            </Field>
-          </View>
-        </View>
+            <SectionLabel>Job Details</SectionLabel>
 
-        <Field label="MODEL">
-          <InputBox icon={<Car color="#3b82f6" size={18} />}>
-            <TextInput
-              style={styles.input}
-              value={formData.model}
-              onChangeText={set('model')}
-              placeholder="Camry LE"
-              placeholderTextColor="#475569"
-            />
-          </InputBox>
-        </Field>
-
-        <View style={styles.row}>
-          <View style={{ flex: 1, marginRight: 10 }}>
-            <Field label="LICENSE PLATE">
-              <InputBox icon={<CreditCard color="#3b82f6" size={18} />}>
-                <TextInput
-                  style={styles.input}
-                  value={formData.licensePlate}
-                  onChangeText={set('licensePlate')}
-                  placeholder="DL2Z482 TX"
-                  autoCapitalize="characters"
-                  placeholderTextColor="#475569"
-                />
-              </InputBox>
+            <Field label="Primary Complaint *" hint="Customer's reason for visit — verbatim is best">
+              <Textarea
+                icon={AlertCircle}
+                placeholder="Engine light on, car hesitates on acceleration…"
+                value={complaint}
+                onChange={e => setComplaint(e.target.value)}
+                autoFocus
+              />
             </Field>
-          </View>
-          <View style={{ flex: 1 }}>
-            <Field label="MILES IN">
-              <InputBox icon={<Gauge color="#3b82f6" size={18} />}>
+
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Mileage In">
                 <TextInput
-                  style={styles.input}
-                  value={formData.milesIn}
-                  onChangeText={set('milesIn')}
+                  icon={Gauge}
+                  type="text"
+                  inputMode="numeric"
                   placeholder="112,095"
-                  keyboardType="numeric"
-                  placeholderTextColor="#475569"
+                  value={mileageIn}
+                  onChange={e => setMileageIn(e.target.value)}
                 />
-              </InputBox>
+              </Field>
+              <Field label="Promised By">
+                <TextInput
+                  icon={Calendar}
+                  type="datetime-local"
+                  value={promisedAt}
+                  onChange={e => setPromisedAt(e.target.value)}
+                />
+              </Field>
+            </div>
+
+            {/* Waiting toggle */}
+            <div className="flex items-center justify-between bg-slate-900 border border-slate-800 rounded-xl px-4 py-4 mb-4">
+              <div className="flex items-center gap-3">
+                <Clock size={16} className="text-amber-400" />
+                <div>
+                  <p className="text-white text-sm font-bold">Customer Waiting</p>
+                  <p className="text-slate-500 text-[10px]">Customer is waiting in the shop</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setWaiting(w => !w)}
+                className={`w-12 h-6 rounded-full transition-colors relative ${waiting ? 'bg-amber-500' : 'bg-slate-700'}`}
+              >
+                <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${waiting ? 'left-6' : 'left-0.5'}`} />
+              </button>
+            </div>
+
+            <Field
+              label="Advisory Notes"
+              hint="Pre-existing conditions / deferred items — noted but NOT authorized for this visit"
+            >
+              <Textarea
+                icon={ClipboardList}
+                placeholder="Oil pan gasket seeping, valve cover leaking, spark plugs due at 120k…"
+                value={advisories}
+                onChange={e => setAdvisories(e.target.value)}
+              />
             </Field>
-          </View>
-        </View>
 
-        {/* ── JOB ── */}
-        <SectionHeader label="JOB DETAILS" />
-
-        <Field label="PRIMARY COMPLAINT">
-          <InputBox icon={<AlertCircle color="#f59e0b" size={18} />} tall>
-            <TextInput
-              style={[styles.input, styles.multiline]}
-              multiline
-              value={formData.complaint}
-              onChangeText={set('complaint')}
-              placeholder="Customer's reason for visit..."
-              placeholderTextColor="#475569"
-            />
-          </InputBox>
-        </Field>
-
-        <Field label="ADVISORY NOTES (pre-existing / deferred)">
-          <InputBox icon={<ClipboardList color="#94a3b8" size={18} />} tall>
-            <TextInput
-              style={[styles.input, styles.multiline]}
-              multiline
-              value={formData.advisories}
-              onChangeText={set('advisories')}
-              placeholder="Oil pan gasket leaking, valve cover leaking, spark plugs due @120k..."
-              placeholderTextColor="#475569"
-            />
-          </InputBox>
-          <Text style={styles.fieldNote}>
-            These are noted but NOT authorized for this visit. Will appear on the customer copy.
-          </Text>
-        </Field>
-
-        {/* SUBMIT */}
-        <TouchableOpacity style={styles.submitBtn} onPress={handleSave}>
-          <Text style={styles.submitText}>COMMIT TO QUEUE</Text>
-          <ChevronRight color="#fff" size={20} />
-        </TouchableOpacity>
-
-        <View style={{ height: 100 }} />
-      </ScrollView>
-    </KeyboardAvoidingView>
+            <button
+              onClick={handleSubmit}
+              disabled={saving}
+              className="w-full mt-6 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-black py-5 rounded-2xl uppercase tracking-widest text-[10px] flex items-center justify-center gap-3 transition-all active:scale-95 shadow-lg shadow-emerald-900/40"
+            >
+              {saving ? (
+                <><Loader2 size={16} className="animate-spin" /> Creating RO…</>
+              ) : (
+                <><ShieldCheck size={16} /> Commit to Queue</>
+              )}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
-
-// ─── LOCAL COMPONENTS ─────────────────────────────────────────────────────────
-
-const SectionHeader = ({ label }) => (
-  <View style={styles.sectionHeader}>
-    <View style={styles.sectionLine} />
-    <Text style={styles.sectionLabel}>{label}</Text>
-    <View style={styles.sectionLine} />
-  </View>
-);
-
-const Field = ({ label, children }) => (
-  <View style={styles.field}>
-    <Text style={styles.label}>{label}</Text>
-    {children}
-  </View>
-);
-
-const InputBox = ({ icon, children, highlight, tall }) => (
-  <View style={[
-    styles.inputBox,
-    tall   && { height: 110, alignItems: 'flex-start', paddingTop: 14 },
-    highlight && { borderColor: '#818cf8' }
-  ]}>
-    <View style={styles.inputIcon}>{icon}</View>
-    {children}
-  </View>
-);
-
-const SearchResults = ({ matches, onSelect }) => (
-  <View style={styles.searchResults}>
-    {matches.map(c => (
-      <TouchableOpacity key={c.id} style={styles.searchItem} onPress={() => onSelect(c)}>
-        <View>
-          <Text style={styles.searchName}>{c.name} <Text style={styles.searchTier}>({c.tier})</Text></Text>
-          <Text style={styles.searchPhone}>{c.phone}</Text>
-        </View>
-        <ChevronRight color="#475569" size={20} />
-      </TouchableOpacity>
-    ))}
-  </View>
-);
-
-// ─── STYLES ───────────────────────────────────────────────────────────────────
-
-const styles = StyleSheet.create({
-  container:      { flex: 1, backgroundColor: '#020617' },
-  scrollContent:  { padding: 20 },
-
-  header:         { marginBottom: 20 },
-  versionTag:     { color: '#1e293b', fontSize: 10, fontWeight: '900', letterSpacing: 1, marginBottom: 4 },
-  title:          { color: '#fff', fontSize: 24, fontWeight: '900' },
-  subtitle:       { color: '#475569', fontSize: 10, fontWeight: 'bold' },
-
-  advisorStamp:   { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#0f172a', borderWidth: 1, borderColor: '#1e293b', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, marginBottom: 20 },
-  advisorText:    { color: '#64748b', fontSize: 11, fontWeight: 'bold' },
-  advisorName:    { color: '#3b82f6', fontWeight: '900' },
-
-  sectionHeader:  { flexDirection: 'row', alignItems: 'center', gap: 10, marginVertical: 18 },
-  sectionLine:    { flex: 1, height: 1, backgroundColor: '#1e293b' },
-  sectionLabel:   { color: '#334155', fontSize: 9, fontWeight: '900', letterSpacing: 2 },
-
-  field:          { marginBottom: 16 },
-  label:          { color: '#94a3b8', fontSize: 10, fontWeight: '900', marginBottom: 8, letterSpacing: 1 },
-  inputBox:       { flexDirection: 'row', alignItems: 'center', backgroundColor: '#0f172a', borderRadius: 16, borderWidth: 1, borderColor: '#1e293b', paddingHorizontal: 15 },
-  inputIcon:      { marginRight: 12 },
-  input:          { flex: 1, height: 55, color: '#fff', fontSize: 15, fontWeight: '600' },
-  multiline:      { height: 80, textAlignVertical: 'top', paddingTop: 4 },
-
-  row:            { flexDirection: 'row', marginBottom: 0 },
-
-  fieldNote:      { color: '#334155', fontSize: 9, fontWeight: 'bold', marginTop: 6, paddingHorizontal: 4 },
-
-  // CRM results
-  searchResults:  { backgroundColor: '#0f172a', borderRadius: 16, marginTop: 8, borderWidth: 1, borderColor: '#1e293b', overflow: 'hidden' },
-  searchItem:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 14, borderBottomWidth: 1, borderBottomColor: '#1e293b' },
-  searchName:     { color: '#fff', fontSize: 14, fontWeight: 'bold' },
-  searchTier:     { color: '#818cf8', fontSize: 10, fontWeight: 'bold' },
-  searchPhone:    { color: '#64748b', fontSize: 12, marginTop: 3 },
-
-  // Selected customer
-  selectedCard:        { backgroundColor: '#0f172a', padding: 18, borderRadius: 16, borderWidth: 1, borderColor: '#818cf8', marginBottom: 20 },
-  selectedCardHeader:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
-  selectedName:        { color: '#fff', fontSize: 16, fontWeight: '900', fontStyle: 'italic' },
-  selectedMeta:        { color: '#818cf8', fontSize: 10, fontWeight: 'bold', marginTop: 2, letterSpacing: 1 },
-  vehicleList:         { borderTopWidth: 1, borderTopColor: '#1e293b', paddingTop: 14 },
-  vehicleOption:       { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#020617', padding: 14, borderRadius: 12, marginBottom: 8, borderWidth: 1, borderColor: '#1e293b' },
-  vehicleOptionActive: { borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,0.05)' },
-  vehicleText:         { color: '#fff', fontSize: 14, fontWeight: 'bold' },
-  vehicleVin:          { color: '#64748b', fontSize: 10, marginTop: 3, fontFamily: 'monospace' },
-
-  // Submit
-  submitBtn:      { backgroundColor: '#3b82f6', height: 70, borderRadius: 24, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginTop: 10, shadowColor: '#3b82f6', shadowOpacity: 0.3, shadowRadius: 12 },
-  submitText:     { color: '#fff', fontSize: 16, fontWeight: '900', marginRight: 10, letterSpacing: 1 },
-});

@@ -18,6 +18,7 @@ create index if not exists error_events_type_idx     on error_events(error_type)
 create index if not exists error_events_created_idx  on error_events(created_at desc);
 
 alter table error_events enable row level security;
+drop policy if exists "pilot_all" on error_events;
 create policy "pilot_all" on error_events
   for all using (true) with check (true);
 

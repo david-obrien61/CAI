@@ -18,6 +18,7 @@ create index if not exists monitoring_alerts_created_idx    on monitoring_alerts
 create index if not exists monitoring_alerts_type_idx       on monitoring_alerts(alert_type);
 
 alter table monitoring_alerts enable row level security;
+drop policy if exists "pilot_all" on monitoring_alerts;
 create policy "pilot_all" on monitoring_alerts
   for all using (true) with check (true);
 

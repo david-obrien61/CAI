@@ -63,7 +63,7 @@ app.add_middleware(
 )
 
 # Mount the unified AI router (/ai/vin_decode, /ai/dtc_decode, etc.)
-from ai_router import ai_router
+from ai_router import ai_router, _supabase, _anthropic_client, _log_usage, _log_error
 app.include_router(ai_router)
 
 # Mount the monitor router (/health/ping, /monitor/dashboard, /cron/daily)
@@ -241,7 +241,259 @@ async def transcribe_audio(file: UploadFile = File(...)):
             os.remove(temp_audio_path)
 
 # ==========================================
-# 5. QUICKBOOKS ENDPOINTS
+# 5. ESTIMATE AGENT
+# ==========================================
+
+class EstimateBuildRequest(BaseModel):
+    estimate_id: str
+    shop_id:     str
+    labor_rate:      float = 125.0   # shop's door rate $/hr
+    markup_percent:  float = 40.0    # parts markup over wholesale cost
+    tax_rate:        float = 0.0825  # sales tax applied to parts only
+
+
+def _get_labor_hours(work_items: list, dtc_codes: list, vehicle: dict,
+                     complaint: str, tech_notes: str,
+                     shop_id: str) -> list:
+    """
+    Maps evaluation work items → priced line items via Claude.
+
+    Pilot: Claude approximation of flat-rate labor hours.
+    Upgrade path: swap this function body for a Mitchell1 / AllData API call.
+    The input/output contract (work_items in → line item dicts out) stays the same.
+    """
+    import anthropic
+
+    dtc_summary = [
+        {"code": d["code"], "description": d.get("description", ""), "severity": d.get("severity", "")}
+        for d in dtc_codes
+    ]
+
+    system = (
+        "You are an expert automotive service estimator. Your job is to convert a technician's "
+        "evaluation findings into a complete, customer-ready line-item repair estimate.\n\n"
+        "Rules:\n"
+        "- Create separate LABOR and PART line items for every repair identified.\n"
+        "- Labor hours must reflect standard flat-rate book time (Mitchell1/AllData equivalent). "
+        "Be realistic — do not pad or underestimate.\n"
+        "- For PART items, provide realistic OEM-equivalent wholesale cost estimates.\n"
+        "- Include shop supplies and hazmat/disposal as FEE line items on any fluids job.\n"
+        "- Sort by: major repairs first, then minor, then fees (sort_order ascending).\n"
+        "- Descriptions must be customer-facing — clear, professional, no jargon.\n"
+        "- Return ONLY a valid JSON array. No markdown, no explanation text."
+    )
+
+    user = (
+        f"Vehicle: {json.dumps(vehicle)}\n"
+        f"Customer complaint: {complaint}\n"
+        f"Tech notes: {tech_notes}\n"
+        f"Work items identified during evaluation: {json.dumps(work_items)}\n"
+        f"Active DTC fault codes: {json.dumps(dtc_summary)}\n\n"
+        "Return a JSON array. Each element must match this shape exactly:\n"
+        "{\n"
+        '  "item_type": "LABOR|PART|SUBLET|FEE|MISC",\n'
+        '  "description": "Customer-facing description",\n'
+        '  "part_number": "OEM or aftermarket part number (PART only, else null)",\n'
+        '  "quantity": 1,\n'
+        '  "labor_hours": null,\n'
+        '  "unit_cost_estimate": 0.00,\n'
+        '  "sort_order": 0,\n'
+        '  "notes": "Internal tech note or null"\n'
+        "}\n\n"
+        "For LABOR items: set labor_hours, set unit_cost_estimate to null.\n"
+        "For PART items: set unit_cost_estimate (wholesale cost), set labor_hours to null.\n"
+        "For FEE items: set unit_cost_estimate, set labor_hours to null.\n"
+    )
+
+    client = _anthropic_client()
+    msg = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=4096,
+        system=system,
+        messages=[{"role": "user", "content": user}],
+    )
+    raw = msg.content[0].text.strip()
+
+    cost = msg.usage.input_tokens * 0.00000025 + msg.usage.output_tokens * 0.00000125
+    _log_usage(shop_id, "estimate_build_labor", "claude", "claude-haiku-4-5-20251001",
+               msg.usage.input_tokens, msg.usage.output_tokens, cost)
+
+    # Strip markdown fences if model added them
+    if raw.startswith("```"):
+        raw = "\n".join(raw.split("\n")[1:]).rsplit("```", 1)[0]
+
+    return json.loads(raw.strip())
+
+
+@app.post("/api/estimate/build")
+async def build_estimate(req: EstimateBuildRequest):
+    """
+    Estimate agent pipeline:
+      1. Load estimate + evaluation + DTC codes from Supabase
+      2. Call Claude to map work items → labor hours + parts
+      3. Apply shop margin engine to parts pricing
+      4. Write estimate_line_items rows
+      5. Update estimate status → ready + totals
+      6. Return structured result
+    """
+    db = _supabase()
+
+    # ── 1. Load estimate row ──────────────────────────────────────────────────
+    est_res = db.table("estimates").select("*").eq("id", req.estimate_id).single().execute()
+    if not est_res.data:
+        raise HTTPException(404, "Estimate not found")
+    estimate = est_res.data
+    job_id   = estimate["job_id"]
+    eval_id  = estimate.get("evaluation_id")
+
+    # ── 2. Load evaluation ────────────────────────────────────────────────────
+    evaluation = None
+    if eval_id:
+        ev = db.table("evaluations").select("*").eq("id", eval_id).single().execute()
+        evaluation = ev.data
+    if not evaluation:
+        # Fall back: latest submitted eval for this job
+        ev = (db.table("evaluations").select("*")
+              .eq("job_id", job_id).eq("status", "submitted")
+              .order("created_at", desc=True).limit(1).execute())
+        evaluation = ev.data[0] if ev.data else None
+    if not evaluation:
+        raise HTTPException(404, "No submitted evaluation found for this job")
+
+    # ── 3. Load DTC codes ─────────────────────────────────────────────────────
+    dtc_res   = db.table("dtc_codes").select("*").eq("evaluation_id", evaluation["id"]).execute()
+    dtc_codes = dtc_res.data or []
+
+    # ── 4. Load job + vehicle snapshot ────────────────────────────────────────
+    job_res = db.table("jobs").select("*").eq("id", job_id).single().execute()
+    job     = job_res.data or {}
+    vehicle = job.get("vehicle") or {}
+
+    complaint  = evaluation.get("complaint") or job.get("complaint") or ""
+    tech_notes = evaluation.get("tech_notes") or ""
+    work_items = evaluation.get("work_items") or []
+
+    # ── 5. Call Claude labor/parts agent ─────────────────────────────────────
+    try:
+        agent_items = _get_labor_hours(
+            work_items, dtc_codes, vehicle, complaint, tech_notes, req.shop_id
+        )
+    except json.JSONDecodeError as e:
+        _log_error(req.shop_id, "AI_CALL", "Estimate JSON parse failed",
+                   endpoint="/api/estimate/build", detail=str(e))
+        raise HTTPException(500, f"Failed to parse estimate JSON from Claude: {e}")
+    except Exception as e:
+        _log_error(req.shop_id, "AI_CALL", str(e), endpoint="/api/estimate/build")
+        raise HTTPException(500, f"Claude estimate failed: {e}")
+
+    # ── 6. Apply margin engine ────────────────────────────────────────────────
+    markup     = req.markup_percent / 100.0
+    labor_rate = req.labor_rate
+    rows_to_insert = []
+    subtotal_parts = 0.0
+    subtotal_labor = 0.0
+    subtotal_fees  = 0.0
+
+    for i, item in enumerate(agent_items):
+        item_type   = item.get("item_type", "MISC")
+        quantity    = float(item.get("quantity") or 1)
+        labor_hours = float(item["labor_hours"]) if item.get("labor_hours") else None
+        unit_cost   = float(item["unit_cost_estimate"]) if item.get("unit_cost_estimate") else None
+
+        unit_price = None
+        line_total = 0.0
+
+        if item_type == "LABOR" and labor_hours:
+            unit_price = labor_rate
+            line_total = round(labor_hours * labor_rate, 2)
+            subtotal_labor += line_total
+
+        elif item_type == "PART" and unit_cost is not None:
+            unit_price = round(unit_cost * (1 + markup), 2)
+            line_total = round(unit_price * quantity, 2)
+            subtotal_parts += line_total
+
+        elif unit_cost is not None:
+            unit_price = round(unit_cost, 2)
+            line_total = round(unit_price * quantity, 2)
+            subtotal_fees += line_total
+
+        rows_to_insert.append({
+            "estimate_id": req.estimate_id,
+            "job_id":      job_id,
+            "shop_id":     req.shop_id,
+            "item_type":   item_type,
+            "description": item.get("description", ""),
+            "part_number": item.get("part_number"),
+            "supplier":    None,
+            "quantity":    quantity,
+            "unit_cost":   unit_cost,
+            "unit_price":  unit_price,
+            "labor_hours": labor_hours,
+            "labor_rate":  labor_rate if item_type == "LABOR" else None,
+            "line_total":  line_total,
+            "auth_status": "pending",
+            "sort_order":  item.get("sort_order", i),
+            "notes":       item.get("notes"),
+        })
+
+    # ── 7. Write line items ───────────────────────────────────────────────────
+    try:
+        db.table("estimate_line_items").insert(rows_to_insert).execute()
+    except Exception as e:
+        raise HTTPException(500, f"Failed to write estimate line items: {e}")
+
+    # ── 8. Update estimate totals + status ────────────────────────────────────
+    subtotal = round(subtotal_labor + subtotal_parts + subtotal_fees, 2)
+    # Tax applied to parts only (labor is generally not taxable in most US states)
+    tax   = round(subtotal_parts * req.tax_rate, 2)
+    total = round(subtotal + tax, 2)
+
+    agent_notes = (
+        f"{len(rows_to_insert)} line items generated. "
+        f"Labor: ${subtotal_labor:.2f} | Parts: ${subtotal_parts:.2f} | Fees: ${subtotal_fees:.2f}. "
+        f"{len(dtc_codes)} DTC codes processed. "
+        f"{len(work_items)} work items from evaluation."
+    )
+
+    try:
+        db.table("estimates").update({
+            "status":        "ready",
+            "agent_version": "haiku-4-5@v1",
+            "agent_notes":   agent_notes,
+            "subtotal":      subtotal,
+            "tax":           tax,
+            "total":         total,
+        }).eq("id", req.estimate_id).execute()
+
+        db.table("jobs").update({"status": "estimating"}).eq("id", job_id).execute()
+    except Exception as e:
+        raise HTTPException(500, f"Failed to update estimate record: {e}")
+
+    # ── 9. Return result ──────────────────────────────────────────────────────
+    line_items = (db.table("estimate_line_items").select("*")
+                  .eq("estimate_id", req.estimate_id)
+                  .order("sort_order").execute().data or [])
+
+    return {
+        "estimate_id":   req.estimate_id,
+        "job_id":        job_id,
+        "status":        "ready",
+        "subtotal":      subtotal,
+        "tax":           tax,
+        "total":         total,
+        "subtotal_labor":  subtotal_labor,
+        "subtotal_parts":  subtotal_parts,
+        "subtotal_fees":   subtotal_fees,
+        "line_items":    line_items,
+        "items_count":   len(rows_to_insert),
+        "agent_version": "haiku-4-5@v1",
+        "agent_notes":   agent_notes,
+    }
+
+
+# ==========================================
+# 6. QUICKBOOKS ENDPOINTS
 # ==========================================
 
 @app.get("/api/qbo/auth-url")
@@ -450,7 +702,7 @@ async def qbo_push_invoice(payload: dict):
 
 
 # ==========================================
-# 6. EXECUTION
+# 7. EXECUTION
 # ==========================================
 
 if __name__ == "__main__":

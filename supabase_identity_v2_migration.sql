@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS teams (
 CREATE INDEX IF NOT EXISTS teams_shop_idx ON teams(shop_id);
 
 ALTER TABLE teams ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "pilot_all_teams" ON teams;
 CREATE POLICY "pilot_all_teams" ON teams FOR ALL USING (true);
 
 
@@ -54,6 +55,7 @@ CREATE INDEX IF NOT EXISTS shop_members_invite_idx ON shop_members(invite_id);
 
 -- Auto-stamp updated_at on every row change.
 -- Uses set_updated_at() defined in supabase_schema.sql.
+DROP TRIGGER IF EXISTS shop_members_updated_at ON shop_members;
 CREATE TRIGGER shop_members_updated_at
   BEFORE UPDATE ON shop_members
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
@@ -92,6 +94,7 @@ CREATE INDEX IF NOT EXISTS member_devices_member_idx ON member_devices(member_id
 CREATE INDEX IF NOT EXISTS member_devices_shop_idx   ON member_devices(shop_id);
 
 ALTER TABLE member_devices ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "pilot_all_member_devices" ON member_devices;
 CREATE POLICY "pilot_all_member_devices" ON member_devices FOR ALL USING (true);
 
 

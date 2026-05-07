@@ -24,7 +24,9 @@ import IgnitionCRM from './modules/IgnitionCRM';
 import IgnitionCompliance from './modules/IgnitionCompliance';
 import IgnitionAdmin from './modules/IgnitionAdmin';
 import IgnitionAudit from './modules/IgnitionAudit';
-import { Lock, LayoutDashboard, Truck, Activity, ShoppingCart, Search, Package, BarChart3, ShieldCheck, Users, Map, Store, ScanLine, QrCode, DollarSign, RefreshCw, UserPlus, ClipboardCheck, Cog, FileSearch, CheckCircle, ChevronRight } from 'lucide-react';
+import IgnitionIntake from './modules/IgnitionIntake';
+import IgnitionEstimate from './modules/IgnitionEstimate';
+import { Lock, LayoutDashboard, Truck, Activity, ShoppingCart, Search, Package, BarChart3, ShieldCheck, Users, Map, Store, ScanLine, QrCode, DollarSign, RefreshCw, UserPlus, ClipboardCheck, Cog, FileSearch, CheckCircle, ChevronRight, FilePlus, ClipboardList } from 'lucide-react';
 
 /**
  * UI: Forgot PIN flow — staff enters 6-digit reset code from admin, sets new PIN
@@ -971,6 +973,27 @@ const CoreApp = () => {
 
       {/* MAIN VIEWPORT */}
       <main className="flex-1 overflow-y-auto">
+        {activeModule === 'INTAKE' && (
+          <AccessGatekeeper requiredPermissions={['view_flux']}>
+            <IgnitionIntake
+              onBack={() => setActiveModule('DASHBOARD')}
+              onJobCreated={(job) => {
+                const updated = [job, ...allJobs];
+                setAllJobs(updated);
+                setActiveJob(job);
+                DataBridge.save('active_job_context', job);
+                setActiveModule('FLUX');
+              }}
+            />
+          </AccessGatekeeper>
+        )}
+
+        {activeModule === 'ESTIMATES' && (
+          <AccessGatekeeper requiredPermissions={['view_port']}>
+            <IgnitionEstimate />
+          </AccessGatekeeper>
+        )}
+
         {activeModule === 'OMNI' && (
           <AccessGatekeeper requiredPermissions={['view_omni']}>
             <IgnitionOmni 
@@ -1021,7 +1044,9 @@ const CoreApp = () => {
             
             <div className="grid grid-cols-4 gap-y-8 gap-x-4 md:grid-cols-6 lg:grid-cols-8 justify-items-center">
               {[
-                { id: 'OMNI', label: 'Command', icon: BarChart3, color: 'text-amber-400', bg: 'bg-slate-800' },
+                { id: 'INTAKE',    label: 'New RO',    icon: FilePlus,     color: 'text-emerald-400', bg: 'bg-slate-800' },
+              { id: 'ESTIMATES', label: 'Estimates', icon: ClipboardList, color: 'text-sky-400',     bg: 'bg-slate-800' },
+              { id: 'OMNI',      label: 'Command',   icon: BarChart3,     color: 'text-amber-400',   bg: 'bg-slate-800' },
                 { id: 'HUB', label: 'Dispatch', icon: Map, color: 'text-blue-500', bg: 'bg-slate-800' },
                 { id: 'FLUX', label: 'Workflow', icon: Truck, color: 'text-sky-400', bg: 'bg-slate-800' },
                 { id: 'PREDICTIVE', label: 'Predict', icon: Activity, color: 'text-purple-500', bg: 'bg-slate-800' },
@@ -1145,6 +1170,14 @@ const CoreApp = () => {
         <button onClick={() => setActiveModule('DASHBOARD')} className={`flex flex-col items-center gap-1 ${activeModule === 'DASHBOARD' ? 'text-blue-500' : 'text-slate-500'}`}>
           <LayoutDashboard size={20} />
           <span className="text-[9px] font-black uppercase">Home</span>
+        </button>
+        <button onClick={() => setActiveModule('INTAKE')} className={`flex flex-col items-center gap-1 ${activeModule === 'INTAKE' ? 'text-emerald-400' : 'text-slate-500'}`}>
+          <FilePlus size={20} />
+          <span className="text-[9px] font-black uppercase">New RO</span>
+        </button>
+        <button onClick={() => setActiveModule('ESTIMATES')} className={`flex flex-col items-center gap-1 ${activeModule === 'ESTIMATES' ? 'text-sky-400' : 'text-slate-500'}`}>
+          <ClipboardList size={20} />
+          <span className="text-[9px] font-black uppercase">Estimates</span>
         </button>
         <button onClick={() => setActiveModule('FLUX')} className={`flex flex-col items-center gap-1 ${activeModule === 'FLUX' ? 'text-blue-500' : 'text-slate-500'}`}>
           <Truck size={20} />

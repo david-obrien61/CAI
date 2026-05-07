@@ -17,6 +17,7 @@ create index if not exists feature_events_created_idx  on feature_events(created
 alter table feature_events enable row level security;
 
 -- Pilot open policy (same as all other tables for now)
+drop policy if exists "pilot_all" on feature_events;
 create policy "pilot_all" on feature_events
   for all using (true) with check (true);
 

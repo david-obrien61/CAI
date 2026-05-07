@@ -17,6 +17,7 @@ CREATE INDEX IF NOT EXISTS shop_members_shop_idx  ON shop_members(shop_id);
 CREATE INDEX IF NOT EXISTS shop_members_name_idx  ON shop_members(shop_id, name);
 
 ALTER TABLE shop_members ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "pilot_all_members" ON shop_members;
 CREATE POLICY "pilot_all_members" ON shop_members FOR ALL USING (true);
 
 -- ─── SHOP INVITES ─────────────────────────────────────────────────────────────
@@ -37,6 +38,7 @@ CREATE INDEX IF NOT EXISTS shop_invites_token_idx   ON shop_invites(token);
 CREATE INDEX IF NOT EXISTS shop_invites_shop_idx    ON shop_invites(shop_id);
 
 ALTER TABLE shop_invites ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "pilot_all_invites" ON shop_invites;
 CREATE POLICY "pilot_all_invites" ON shop_invites FOR ALL USING (true);
 
 -- ─── PIN RESETS ───────────────────────────────────────────────────────────────
@@ -59,4 +61,5 @@ CREATE INDEX IF NOT EXISTS pin_resets_code_idx  ON pin_resets(reset_code);
 CREATE INDEX IF NOT EXISTS pin_resets_shop_idx  ON pin_resets(shop_id);
 
 ALTER TABLE pin_resets ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "pilot_all_resets" ON pin_resets;
 CREATE POLICY "pilot_all_resets" ON pin_resets FOR ALL USING (true);

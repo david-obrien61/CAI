@@ -17,6 +17,7 @@ create index if not exists concept_aliases_concept_idx on concept_aliases(concep
 create index if not exists concept_aliases_status_idx  on concept_aliases(status);
 
 alter table concept_aliases enable row level security;
+drop policy if exists "pilot_all" on concept_aliases;
 create policy "pilot_all" on concept_aliases
   for all using (true) with check (true);
 

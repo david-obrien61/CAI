@@ -1,91 +1,195 @@
 /**
  * FILE: modules/CustomerApprovalPortal.jsx
  * PLATFORM: Web (React DOM)
- * PURPOSE: Fullscreen customer-facing estimate approval + real signature capture.
- *          Presented on a tablet turned toward the customer, or linked remotely.
+ * PURPOSE: Customer-facing line-item estimate approval with digital signature.
+ *          Presented in-person on a tablet turned toward the customer.
+ *          Reads estimate_line_items from Supabase, writes customer_authorizations.
+ *
+ * Props:
+ *   estimateId  — uuid of the estimate to display
+ *   jobId       — uuid of the job (for customer_authorizations insert)
+ *   shopId      — uuid of the shop
+ *   onAuthorized(result) — called after Supabase write completes
+ *   onClose()   — staff escape button
  */
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import SignatureCanvas from 'react-signature-canvas';
-import { Check, X, RotateCcw, Shield, AlertCircle, FileText } from 'lucide-react';
+import {
+  Check, X, RotateCcw, Shield, AlertCircle, FileText,
+  Loader2, ChevronDown, ChevronUp,
+} from 'lucide-react';
+import { supabase } from '../supabase';
 import DataBridge from '../DataBridge';
-import { MarginEngine } from '../MarginEngine';
 
-const fmt$ = (n) => `$${(parseFloat(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const fmt$ = (n) =>
+  `$${(parseFloat(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-const buildLineItems = (job) => {
-  const items = [];
-  if (job?.suggestedParts?.length > 0) {
-    items.push({ desc: 'Standard Diagnostic Fee', retail: 195.00 });
-  }
-  (job?.suggestedParts || []).forEach(part => {
-    items.push({
-      desc: `${part.name} (x${part.qty})`,
-      retail: part.retailPrice ?? (MarginEngine.calculateRetail(part.wholesaleCost || 0) * (part.qty || 1)),
-    });
-  });
-  (job?.tasks || []).forEach(task => {
-    if ((task.billed_hours || 0) > 0) {
-      items.push({
-        desc: `Labor: ${task.description} (${task.billed_hours} hrs @ $${task.rate}/hr)`,
-        retail: task.billed_hours * task.rate,
-      });
-    }
-  });
-  if (parseFloat(job?.incidentals) > 0) {
-    items.push({ desc: 'Shop Supplies & Env. Fees', retail: parseFloat(job.incidentals) });
-  }
-  return items;
+const ITEM_TYPE_LABEL = {
+  LABOR: 'Labor', PART: 'Part', SUBLET: 'Sublet', FEE: 'Fee', MISC: 'Misc',
 };
 
-// ─── AUTHORIZED CONFIRMATION SCREEN ──────────────────────────────────────────
+// ─── Authorized confirmation screen ──────────────────────────────────────────
 
-const AuthorizedScreen = () => (
+const AuthorizedScreen = ({ approvedCount, declinedCount, total }) => (
   <div className="fixed inset-0 z-50 bg-slate-950 flex flex-col items-center justify-center text-center p-8">
     <div className="w-24 h-24 bg-emerald-500 rounded-full flex items-center justify-center mb-6 shadow-2xl shadow-emerald-900/40">
       <Check size={48} className="text-white" />
     </div>
     <h2 className="text-3xl font-black text-white uppercase italic tracking-tighter mb-3">Work Authorized</h2>
-    <p className="text-slate-400 text-sm max-w-xs">
+    <p className="text-emerald-400 text-2xl font-black mb-2">{fmt$(total)}</p>
+    <p className="text-slate-400 text-sm max-w-xs mb-2">
+      {approvedCount} item{approvedCount !== 1 ? 's' : ''} authorized
+      {declinedCount > 0 && `, ${declinedCount} declined`}.
+    </p>
+    <p className="text-slate-600 text-xs max-w-xs">
       Your signature has been captured and stored with this work order. We'll get started right away.
     </p>
   </div>
 );
 
-// ─── MAIN PORTAL ──────────────────────────────────────────────────────────────
+// ─── Main portal ─────────────────────────────────────────────────────────────
 
-const CustomerApprovalPortal = ({ job, onAuthorized, onClose }) => {
-  const sigRef = useRef(null);
+export default function CustomerApprovalPortal({ estimateId, jobId, shopId, onAuthorized, onClose }) {
+  const shopInfo  = DataBridge.load('shop_info') || {};
+  const sigRef    = useRef(null);
+
+  const [loading, setLoading]         = useState(true);
+  const [estimate, setEstimate]       = useState(null);
+  const [job, setJob]                 = useState(null);
+  const [lineItems, setLineItems]     = useState([]);
+  const [decisions, setDecisions]     = useState({});   // { [id]: 'approved' | 'declined' }
+  const [expanded, setExpanded]       = useState({});   // { [id]: bool } — show notes
   const [hasSignature, setHasSignature] = useState(false);
-  const [consent, setConsent] = useState(false);
-  const [authorized, setAuthorized] = useState(false);
+  const [consent, setConsent]         = useState(false);
+  const [submitting, setSubmitting]   = useState(false);
+  const [authorized, setAuthorized]   = useState(false);
+  const [authResult, setAuthResult]   = useState(null);
 
-  const shopInfo = DataBridge.load('shop_info') || {};
-  const items = buildLineItems(job);
-  const total = items.reduce((sum, i) => sum + (i.retail || 0), 0);
+  // ── Load estimate + line items ──────────────────────────────────────────────
 
-  const woId = job?.jobId || job?.id || 'WO-???';
-  const vehicle = [job?.year, job?.make, job?.model].filter(Boolean).join(' ').toUpperCase() || 'VEHICLE';
-  const customerName = job?.name || 'Customer';
+  useEffect(() => {
+    const load = async () => {
+      setLoading(true);
 
-  const clearSig = () => {
-    sigRef.current?.clear();
-    setHasSignature(false);
+      const [estRes, itemsRes, jobRes] = await Promise.all([
+        supabase.from('estimates').select('*').eq('id', estimateId).single(),
+        supabase.from('estimate_line_items').select('*')
+          .eq('estimate_id', estimateId).order('sort_order'),
+        supabase.from('jobs').select('*').eq('id', jobId).single(),
+      ]);
+
+      const est   = estRes.data;
+      const items = itemsRes.data || [];
+      const j     = jobRes.data;
+
+      setEstimate(est);
+      setLineItems(items);
+      setJob(j);
+
+      // Default: all items approved
+      const initial = {};
+      items.forEach(item => { initial[item.id] = 'approved'; });
+      setDecisions(initial);
+      setLoading(false);
+    };
+    load();
+  }, [estimateId, jobId]);
+
+  // ── Derived totals ──────────────────────────────────────────────────────────
+
+  const approvedItems  = lineItems.filter(i => decisions[i.id] === 'approved');
+  const declinedItems  = lineItems.filter(i => decisions[i.id] === 'declined');
+  const approvedTotal  = approvedItems.reduce((s, i) => s + (i.line_total || 0), 0);
+  const approvedParts  = approvedItems.filter(i => i.item_type === 'PART').reduce((s, i) => s + (i.line_total || 0), 0);
+  const taxRate        = DataBridge.load('shop_policy')?.tax_rate || 0.0825;
+  const tax            = +(approvedParts * taxRate).toFixed(2);
+  const total          = +(approvedTotal + tax).toFixed(2);
+
+  const toggleDecision = (id) =>
+    setDecisions(prev => ({ ...prev, [id]: prev[id] === 'approved' ? 'declined' : 'approved' }));
+
+  const approveAll = () => {
+    const all = {};
+    lineItems.forEach(i => { all[i.id] = 'approved'; });
+    setDecisions(all);
   };
 
-  const handleAuthorize = () => {
-    if (!hasSignature || !consent) return;
-    const sigDataUrl = sigRef.current?.getTrimmedCanvas().toDataURL('image/png');
-    setAuthorized(true);
-    setTimeout(() => onAuthorized(sigDataUrl), 1800);
+  const clearSig = () => { sigRef.current?.clear(); setHasSignature(false); };
+
+  // ── Submit authorization ────────────────────────────────────────────────────
+
+  const handleAuthorize = async () => {
+    if (!hasSignature || !consent || submitting) return;
+    setSubmitting(true);
+
+    try {
+      const now = new Date().toISOString();
+      const approvedIds = approvedItems.map(i => i.id);
+      const declinedIds = declinedItems.map(i => i.id);
+      const customerName = [job?.customer?.name].filter(Boolean).join('') || null;
+
+      // 1. Update each line item auth_status
+      await Promise.all(lineItems.map(item =>
+        supabase.from('estimate_line_items')
+          .update({ auth_status: decisions[item.id] || 'declined' })
+          .eq('id', item.id)
+      ));
+
+      // 2. Write legal authorization record
+      await supabase.from('customer_authorizations').insert({
+        estimate_id:         estimateId,
+        job_id:              jobId,
+        shop_id:             shopId,
+        method:              'IN_PERSON',
+        authorized_line_ids: approvedIds,
+        declined_line_ids:   declinedIds,
+        authorized_total:    +approvedTotal.toFixed(2),
+        customer_name:       customerName,
+        authorized_at:       now,
+      });
+
+      // 3. Update estimate status
+      await supabase.from('estimates').update({
+        status:        'authorized',
+        authorized_at: now,
+      }).eq('id', estimateId);
+
+      // 4. Update job status
+      await supabase.from('jobs').update({ status: 'authorized' }).eq('id', jobId);
+
+      setAuthResult({ approvedCount: approvedIds.length, declinedCount: declinedIds.length, total });
+      setAuthorized(true);
+      setTimeout(() => onAuthorized?.({ approvedIds, declinedIds, total }), 2200);
+    } catch (err) {
+      console.error('Authorization write failed:', err);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  if (authorized) return <AuthorizedScreen />;
+  // ─────────────────────────────────────────────────────────────────────────
+  // RENDER
+  // ─────────────────────────────────────────────────────────────────────────
+
+  if (authorized && authResult) return (
+    <AuthorizedScreen
+      approvedCount={authResult.approvedCount}
+      declinedCount={authResult.declinedCount}
+      total={authResult.total}
+    />
+  );
+
+  const woId    = job?.wo_number || jobId?.slice(0, 8) || 'WO-???';
+  const vehicle = job?.vehicle
+    ? [job.vehicle.year, job.vehicle.make, job.vehicle.model].filter(Boolean).join(' ').toUpperCase()
+    : '';
+  const custName = job?.customer?.name || '';
 
   return (
     <div className="fixed inset-0 z-50 bg-black overflow-y-auto">
 
-      {/* Staff escape — small and unobtrusive so customer doesn't notice */}
+      {/* Staff escape — unobtrusive */}
       <button
         onClick={onClose}
         title="Staff: close portal"
@@ -94,145 +198,265 @@ const CustomerApprovalPortal = ({ job, onAuthorized, onClose }) => {
         <X size={14} />
       </button>
 
-      <div className="max-w-xl mx-auto px-5 py-12 pb-28 space-y-4">
+      <div className="max-w-xl mx-auto px-5 py-12 pb-32 space-y-4">
 
         {/* ── HEADER ── */}
         <div className="text-center mb-8">
           <p className="text-[10px] font-black text-slate-600 uppercase tracking-[0.3em] mb-2">
-            {shopInfo.name || 'Ignition OS Shop'}
+            {shopInfo.name || 'Ignition OS'}
           </p>
           <h1 className="text-3xl font-black italic text-white uppercase tracking-tighter mb-1">
             Repair Estimate
           </h1>
           <p className="text-[10px] font-mono text-slate-500 uppercase tracking-widest">
-            Work Order #{woId}
+            Work Order {woId}
           </p>
         </div>
 
-        {/* ── CUSTOMER / VEHICLE ── */}
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
-          <p className="text-[9px] font-black text-slate-600 uppercase tracking-widest mb-1">Prepared For</p>
-          <p className="text-xl font-black text-white uppercase tracking-tight">{customerName}</p>
-          <p className="text-sm text-slate-400 font-bold mt-1">{vehicle}</p>
-          {job?.vin && <p className="text-[10px] font-mono text-slate-600 mt-1">VIN: {job.vin}</p>}
-        </div>
-
-        {/* ── REPORTED ISSUE ── */}
-        <div className="bg-slate-900 border border-orange-500/20 rounded-3xl p-6">
-          <p className="text-[9px] font-black text-orange-500 uppercase tracking-widest mb-2">Reported Issue</p>
-          <p className="text-sm text-slate-300 italic leading-relaxed">
-            "{job?.complaint || job?.problem || 'No specific problem reported.'}"
-          </p>
-        </div>
-
-        {/* ── ADVISORIES (not authorized) ── */}
-        {job?.advisories && (
-          <div className="bg-slate-900 border border-slate-700 rounded-3xl p-6">
-            <div className="flex items-center gap-2 mb-3">
-              <AlertCircle size={13} className="text-slate-500" />
-              <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">
-                Advisory — Not Authorized This Visit
-              </p>
-            </div>
-            {job.advisories.split('\n').filter(Boolean).map((line, i) => (
-              <p key={i} className="text-sm text-slate-600 leading-relaxed">· {line}</p>
-            ))}
+        {loading && (
+          <div className="flex justify-center py-20">
+            <Loader2 size={28} className="text-blue-500 animate-spin" />
           </div>
         )}
 
-        {/* ── ESTIMATE BREAKDOWN ── */}
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
-          <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-5">Estimate Breakdown</p>
-
-          {items.length === 0 ? (
-            <p className="text-sm text-slate-600 italic">No itemized charges on this estimate.</p>
-          ) : (
-            <div className="space-y-3">
-              {items.map((item, i) => (
-                <div key={i} className="flex justify-between items-start gap-4 border-b border-slate-800 pb-3 last:border-0 last:pb-0">
-                  <p className="text-sm text-slate-300 leading-snug flex-1">{item.desc}</p>
-                  <p className="text-sm font-black text-white whitespace-nowrap">{fmt$(item.retail)}</p>
-                </div>
-              ))}
+        {!loading && (
+          <>
+            {/* ── CUSTOMER / VEHICLE ── */}
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
+              {custName && (
+                <>
+                  <p className="text-[9px] font-black text-slate-600 uppercase tracking-widest mb-1">Prepared For</p>
+                  <p className="text-xl font-black text-white uppercase tracking-tight">{custName}</p>
+                </>
+              )}
+              {vehicle && <p className="text-sm text-slate-400 font-bold mt-1">{vehicle}</p>}
+              {job?.vehicle?.vin && (
+                <p className="text-[10px] font-mono text-slate-600 mt-1">VIN: …{job.vehicle.vin.slice(-6)}</p>
+              )}
             </div>
-          )}
 
-          <div className="mt-6 pt-5 border-t border-slate-700 flex justify-between items-center">
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Estimated Total</p>
-            <p className="text-4xl font-black italic text-emerald-400 tracking-tighter">{fmt$(total)}</p>
-          </div>
-        </div>
-
-        {/* ── SIGNATURE CAPTURE ── */}
-        <div className="bg-slate-900 border border-blue-500/20 rounded-3xl p-6">
-          <div className="flex items-center gap-2 mb-2">
-            <FileText size={13} className="text-blue-400" />
-            <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Customer Signature</p>
-          </div>
-          <p className="text-[10px] text-slate-500 leading-relaxed mb-5">
-            By signing below, you authorize {shopInfo.name || 'this shop'} to perform the repairs listed above at the estimated cost.
-            Final invoice may vary slightly based on additional findings during service.
-          </p>
-
-          <div className="relative bg-black border-2 border-dashed border-slate-700 rounded-2xl overflow-hidden" style={{ height: 160 }}>
-            <SignatureCanvas
-              ref={sigRef}
-              penColor="#10b981"
-              backgroundColor="transparent"
-              canvasProps={{ style: { width: '100%', height: '100%', position: 'absolute', top: 0, left: 0 } }}
-              onEnd={() => setHasSignature(true)}
-            />
-            {!hasSignature && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none gap-1">
-                <p className="text-slate-700 text-sm font-black uppercase tracking-widest">Sign Here</p>
-                <p className="text-slate-800 text-[10px]">Use your finger or stylus</p>
+            {/* ── COMPLAINT ── */}
+            {job?.complaint && (
+              <div className="bg-slate-900 border border-amber-500/20 rounded-3xl p-6">
+                <p className="text-[9px] font-black text-amber-500 uppercase tracking-widest mb-2">Reported Issue</p>
+                <p className="text-sm text-slate-300 italic leading-relaxed">"{job.complaint}"</p>
               </div>
             )}
-          </div>
 
-          {hasSignature && (
+            {/* ── LINE ITEMS ── */}
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
+              <div className="flex items-center justify-between mb-5">
+                <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">
+                  Review Each Item
+                </p>
+                <button
+                  onClick={approveAll}
+                  className="text-[9px] font-black text-emerald-500 hover:text-emerald-400 uppercase tracking-widest transition-colors"
+                >
+                  Approve All
+                </button>
+              </div>
+
+              {lineItems.length === 0 && (
+                <p className="text-sm text-slate-600 italic">No line items found.</p>
+              )}
+
+              <div className="space-y-2">
+                {lineItems.map(item => {
+                  const isApproved = decisions[item.id] === 'approved';
+                  const isExp      = expanded[item.id];
+                  const typeLbl    = ITEM_TYPE_LABEL[item.item_type] || item.item_type;
+
+                  return (
+                    <div
+                      key={item.id}
+                      className={`rounded-2xl border transition-all ${
+                        isApproved
+                          ? 'bg-slate-950 border-slate-800'
+                          : 'bg-red-950/30 border-red-900/40'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 p-4">
+                        {/* Approve/Decline toggle */}
+                        <button
+                          onClick={() => toggleDecision(item.id)}
+                          className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 transition-all active:scale-90 ${
+                            isApproved
+                              ? 'bg-emerald-500/20 border border-emerald-500/40 text-emerald-400'
+                              : 'bg-red-500/20 border border-red-500/40 text-red-400'
+                          }`}
+                        >
+                          {isApproved ? <Check size={18} /> : <X size={18} />}
+                        </button>
+
+                        {/* Description + type */}
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-sm font-bold leading-snug ${isApproved ? 'text-white' : 'text-slate-500 line-through'}`}>
+                            {item.description}
+                          </p>
+                          <p className="text-[9px] text-slate-600 uppercase tracking-widest mt-0.5">
+                            {typeLbl}
+                            {item.item_type === 'LABOR' && item.labor_hours
+                              ? ` · ${item.labor_hours}h`
+                              : item.quantity && item.quantity !== 1
+                                ? ` · ×${item.quantity}`
+                                : ''}
+                          </p>
+                        </div>
+
+                        {/* Price */}
+                        <div className="text-right flex-shrink-0">
+                          <p className={`font-black text-base ${isApproved ? 'text-white' : 'text-slate-700'}`}>
+                            {fmt$(item.line_total)}
+                          </p>
+                        </div>
+
+                        {/* Expand notes */}
+                        {item.notes && (
+                          <button
+                            onClick={() => setExpanded(p => ({ ...p, [item.id]: !p[item.id] }))}
+                            className="text-slate-700 hover:text-slate-500 transition-colors flex-shrink-0"
+                          >
+                            {isExp ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                          </button>
+                        )}
+                      </div>
+
+                      {isExp && item.notes && (
+                        <div className="px-4 pb-4 pt-0">
+                          <p className="text-xs text-slate-500 italic leading-relaxed border-t border-slate-800 pt-3">
+                            {item.notes}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* ── TOTALS ── */}
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
+              <div className="space-y-2 text-sm mb-4">
+                <div className="flex justify-between text-slate-400">
+                  <span>Approved items ({approvedItems.length} of {lineItems.length})</span>
+                  <span>{fmt$(approvedTotal)}</span>
+                </div>
+                <div className="flex justify-between text-slate-500 text-xs">
+                  <span>Tax ({(taxRate * 100).toFixed(2)}% on parts)</span>
+                  <span>{fmt$(tax)}</span>
+                </div>
+                {declinedItems.length > 0 && (
+                  <div className="flex justify-between text-red-400/60 text-xs">
+                    <span>Declined ({declinedItems.length} item{declinedItems.length !== 1 ? 's' : ''})</span>
+                    <span>−{fmt$(declinedItems.reduce((s, i) => s + (i.line_total || 0), 0))}</span>
+                  </div>
+                )}
+              </div>
+              <div className="flex justify-between items-center border-t border-slate-700 pt-4">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">You Authorize</p>
+                <p className="text-4xl font-black italic text-emerald-400 tracking-tighter">{fmt$(total)}</p>
+              </div>
+            </div>
+
+            {/* ── DECLINED SUMMARY (if any) ── */}
+            {declinedItems.length > 0 && (
+              <div className="bg-red-950/20 border border-red-900/30 rounded-3xl p-5">
+                <div className="flex items-center gap-2 mb-3">
+                  <AlertCircle size={13} className="text-red-400" />
+                  <p className="text-[9px] font-black text-red-400 uppercase tracking-widest">
+                    Declined — Not Authorized This Visit
+                  </p>
+                </div>
+                {declinedItems.map(i => (
+                  <p key={i.id} className="text-xs text-red-300/50 leading-relaxed">· {i.description}</p>
+                ))}
+              </div>
+            )}
+
+            {/* ── SIGNATURE ── */}
+            <div className="bg-slate-900 border border-blue-500/20 rounded-3xl p-6">
+              <div className="flex items-center gap-2 mb-2">
+                <FileText size={13} className="text-blue-400" />
+                <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Your Signature</p>
+              </div>
+              <p className="text-[10px] text-slate-500 leading-relaxed mb-5">
+                By signing, you authorize {shopInfo.name || 'this shop'} to perform the checked repairs at the
+                estimated cost shown above. Final invoice may vary slightly if additional issues are discovered.
+              </p>
+
+              <div
+                className="relative bg-black border-2 border-dashed border-slate-700 rounded-2xl overflow-hidden"
+                style={{ height: 170 }}
+              >
+                <SignatureCanvas
+                  ref={sigRef}
+                  penColor="#10b981"
+                  backgroundColor="transparent"
+                  canvasProps={{
+                    style: { width: '100%', height: '100%', position: 'absolute', top: 0, left: 0 },
+                  }}
+                  onEnd={() => setHasSignature(true)}
+                />
+                {!hasSignature && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none gap-1">
+                    <p className="text-slate-700 text-sm font-black uppercase tracking-widest">Sign Here</p>
+                    <p className="text-slate-800 text-[10px]">Use your finger or stylus</p>
+                  </div>
+                )}
+              </div>
+
+              {hasSignature && (
+                <button
+                  onClick={clearSig}
+                  className="flex items-center gap-1.5 mt-3 text-[10px] font-black text-slate-600 hover:text-red-400 uppercase tracking-widest transition-colors"
+                >
+                  <RotateCcw size={11} /> Clear & Re-sign
+                </button>
+              )}
+
+              <label className="flex items-start gap-3 mt-6 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={consent}
+                  onChange={e => setConsent(e.target.checked)}
+                  className="mt-0.5 w-4 h-4 rounded flex-shrink-0 accent-blue-500 cursor-pointer"
+                />
+                <span className="text-[10px] text-slate-500 leading-relaxed">
+                  I have reviewed the estimate above, I authorize only the checked repairs, and I understand
+                  that the final invoice may differ if additional issues are discovered during service.
+                </span>
+              </label>
+            </div>
+
+            {/* ── AUTHORIZE BUTTON ── */}
             <button
-              onClick={clearSig}
-              className="flex items-center gap-1.5 mt-3 text-[10px] font-black text-slate-600 hover:text-red-400 uppercase tracking-widest transition-colors"
+              onClick={handleAuthorize}
+              disabled={!hasSignature || !consent || submitting || approvedItems.length === 0}
+              className={`w-full py-6 rounded-3xl font-black text-sm uppercase tracking-widest transition-all flex items-center justify-center gap-3 ${
+                hasSignature && consent && approvedItems.length > 0 && !submitting
+                  ? 'bg-emerald-500 hover:bg-emerald-400 text-white shadow-2xl shadow-emerald-900/40 active:scale-[0.98]'
+                  : 'bg-slate-800 text-slate-600 cursor-not-allowed'
+              }`}
             >
-              <RotateCcw size={11} /> Clear & Re-sign
+              {submitting
+                ? <><Loader2 size={20} className="animate-spin" /> Securing…</>
+                : <><Shield size={20} /> Authorize {fmt$(total)}</>
+              }
             </button>
-          )}
 
-          <label className="flex items-start gap-3 mt-6 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={consent}
-              onChange={e => setConsent(e.target.checked)}
-              className="mt-0.5 w-4 h-4 rounded flex-shrink-0 accent-blue-500 cursor-pointer"
-            />
-            <span className="text-[10px] text-slate-500 leading-relaxed">
-              I have reviewed the estimate above, I authorize the listed repairs, and I agree that the final invoice may differ
-              if additional issues are discovered during service.
-            </span>
-          </label>
-        </div>
+            {approvedItems.length === 0 && (
+              <p className="text-center text-xs text-red-400/60 font-bold uppercase tracking-widest">
+                At least one item must be approved to authorize
+              </p>
+            )}
 
-        {/* ── AUTHORIZE BUTTON ── */}
-        <button
-          onClick={handleAuthorize}
-          disabled={!hasSignature || !consent}
-          className={`w-full py-6 rounded-3xl font-black text-sm uppercase tracking-widest transition-all flex items-center justify-center gap-3 ${
-            hasSignature && consent
-              ? 'bg-emerald-500 hover:bg-emerald-400 text-white shadow-2xl shadow-emerald-900/40 active:scale-[0.98]'
-              : 'bg-slate-800 text-slate-600 cursor-not-allowed'
-          }`}
-        >
-          <Shield size={20} />
-          Authorize Repairs
-        </button>
-
-        <p className="text-center text-[9px] text-slate-700 uppercase tracking-widest pb-4">
-          Your signature is encrypted and stored with Work Order #{woId}
-        </p>
+            <p className="text-center text-[9px] text-slate-700 uppercase tracking-widest pb-4">
+              Authorization recorded · Work Order {woId}
+            </p>
+          </>
+        )}
       </div>
     </div>
   );
-};
-
-export default CustomerApprovalPortal;
+}
