@@ -17,6 +17,7 @@ import {
 import { supabase } from '../supabase';
 import DataBridge from '../DataBridge';
 import CustomerApprovalPortal from './CustomerApprovalPortal';
+import PriceField from '../PriceField';
 
 // ─── constants ────────────────────────────────────────────────────────────────
 
@@ -259,6 +260,25 @@ export default function IgnitionEstimate() {
 
     setLineItems(prev => prev.map(l => l.id === id ? { ...l, ...updates } : l));
     await supabase.from('estimate_line_items').update(updates).eq('id', id);
+    await syncTotals(id, updates);
+    markSaving(id, false);
+  };
+
+  const handlePriceOverride = async (id, { finalPrice, isOverride, suggestedPrice, leakage }) => {
+    markSaving(id, true);
+    const item = lineItems.find(l => l.id === id);
+    const qty = item?.quantity || 1;
+    const newTotal = +(finalPrice * qty).toFixed(2);
+    const updates = {
+      unit_price:                  finalPrice,
+      line_total:                  newTotal,
+      is_manual_override:          isOverride,
+      original_calculated_price:   suggestedPrice,
+      price_leakage:               isOverride ? leakage : 0,
+    };
+    setLineItems(prev => prev.map(l => l.id === id ? { ...l, ...updates } : l));
+    const { error: upErr } = await supabase.from('estimate_line_items').update(updates).eq('id', id);
+    if (upErr) console.error('[PriceOverride] Supabase write failed:', upErr);
     await syncTotals(id, updates);
     markSaving(id, false);
   };
@@ -630,79 +650,135 @@ export default function IgnitionEstimate() {
 
                   <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden mb-4">
                     {items.map(item => (
-                      <div key={item.id} className="flex items-start gap-3 px-4 py-3 border-b border-slate-800 last:border-0 hover:bg-slate-900/50 group">
-                        {/* Description */}
-                        <div className="flex-1 min-w-0">
-                          <div className="text-white text-sm font-semibold mb-0.5">
-                            {isSent ? item.description : (
-                              <EditableCell
-                                value={item.description}
-                                onSave={v => updateLineItem(item.id, 'description', v)}
-                              />
+                      type === 'PART' ? (
+                        <div key={item.id} className="border-b border-slate-800 last:border-0">
+                          <div className="flex items-start gap-3 px-4 py-3 hover:bg-slate-900/50 group">
+                            <div className="flex-1 min-w-0">
+                              <div className="text-white text-sm font-semibold mb-0.5">
+                                {isSent ? item.description : (
+                                  <EditableCell
+                                    value={item.description}
+                                    onSave={v => updateLineItem(item.id, 'description', v)}
+                                  />
+                                )}
+                              </div>
+                              {item.part_number && (
+                                <p className="text-slate-600 text-[10px] font-mono">#{item.part_number}</p>
+                              )}
+                              {item.notes && (
+                                <p className="text-slate-600 text-[10px] italic mt-0.5">{item.notes}</p>
+                              )}
+                            </div>
+                            <div className="w-16 text-right flex-shrink-0">
+                              <div className="text-slate-400 text-xs">
+                                {isSent ? `×${item.quantity}` : (
+                                  <EditableCell
+                                    value={item.quantity}
+                                    type="number"
+                                    onSave={v => updateLineItem(item.id, 'quantity', v)}
+                                  />
+                                )}
+                              </div>
+                            </div>
+                            <div className="w-20 text-right flex-shrink-0">
+                              <span className="text-white font-bold text-sm">{fmt(item.line_total)}</span>
+                              {savingIds.has(item.id) && <Loader2 size={10} className="text-blue-400 animate-spin inline ml-1" />}
+                              {item.is_manual_override && (
+                                <span className="text-[8px] font-black text-orange-500 uppercase block mt-0.5">Override</span>
+                              )}
+                            </div>
+                            {!isSent && (
+                              <button
+                                onClick={() => deleteLineItem(item.id)}
+                                className="text-slate-700 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0"
+                              >
+                                <Trash2 size={14} />
+                              </button>
                             )}
                           </div>
-                          {item.part_number && (
-                            <p className="text-slate-600 text-[10px] font-mono">#{item.part_number}</p>
-                          )}
-                          {item.notes && (
-                            <p className="text-slate-600 text-[10px] italic mt-0.5">{item.notes}</p>
-                          )}
+                          <div className="px-4 pb-4">
+                            {!isSent ? (
+                              <PriceField
+                                cost={item.unit_cost || 0}
+                                initialPrice={item.unit_price}
+                                onUpdate={d => handlePriceOverride(item.id, d)}
+                              />
+                            ) : item.unit_price != null && (
+                              <div className="flex items-center gap-2 pb-1">
+                                <span className="text-slate-500 text-[10px]">{fmt(item.unit_price)}/ea</span>
+                                {item.is_manual_override && (
+                                  <span className="text-[8px] font-black text-orange-500/70 uppercase px-1.5 py-0.5 rounded border border-orange-500/20">Relationship Tax</span>
+                                )}
+                              </div>
+                            )}
+                          </div>
                         </div>
-
-                        {/* Labor hours or qty */}
-                        <div className="w-16 text-right flex-shrink-0">
-                          {item.item_type === 'LABOR' ? (
-                            <div className="text-slate-400 text-xs">
-                              {isSent ? `${item.labor_hours}h` : (
+                      ) : (
+                        <div key={item.id} className="flex items-start gap-3 px-4 py-3 border-b border-slate-800 last:border-0 hover:bg-slate-900/50 group">
+                          <div className="flex-1 min-w-0">
+                            <div className="text-white text-sm font-semibold mb-0.5">
+                              {isSent ? item.description : (
                                 <EditableCell
-                                  value={item.labor_hours}
-                                  type="number"
-                                  onSave={v => updateLineItem(item.id, 'labor_hours', v)}
+                                  value={item.description}
+                                  onSave={v => updateLineItem(item.id, 'description', v)}
                                 />
                               )}
                             </div>
-                          ) : (
+                            {item.part_number && (
+                              <p className="text-slate-600 text-[10px] font-mono">#{item.part_number}</p>
+                            )}
+                            {item.notes && (
+                              <p className="text-slate-600 text-[10px] italic mt-0.5">{item.notes}</p>
+                            )}
+                          </div>
+                          <div className="w-16 text-right flex-shrink-0">
+                            {item.item_type === 'LABOR' ? (
+                              <div className="text-slate-400 text-xs">
+                                {isSent ? `${item.labor_hours}h` : (
+                                  <EditableCell
+                                    value={item.labor_hours}
+                                    type="number"
+                                    onSave={v => updateLineItem(item.id, 'labor_hours', v)}
+                                  />
+                                )}
+                              </div>
+                            ) : (
+                              <div className="text-slate-400 text-xs">
+                                {isSent ? `×${item.quantity}` : (
+                                  <EditableCell
+                                    value={item.quantity}
+                                    type="number"
+                                    onSave={v => updateLineItem(item.id, 'quantity', v)}
+                                  />
+                                )}
+                              </div>
+                            )}
+                          </div>
+                          <div className="w-20 text-right flex-shrink-0">
                             <div className="text-slate-400 text-xs">
-                              {isSent ? `×${item.quantity}` : (
+                              {isSent ? fmt(item.unit_price) : (
                                 <EditableCell
-                                  value={item.quantity}
+                                  value={item.unit_price != null ? +item.unit_price.toFixed(2) : null}
                                   type="number"
-                                  onSave={v => updateLineItem(item.id, 'quantity', v)}
+                                  onSave={v => updateLineItem(item.id, 'unit_price', v)}
                                 />
                               )}
                             </div>
+                          </div>
+                          <div className="w-20 text-right flex-shrink-0">
+                            <span className="text-white font-bold text-sm">{fmt(item.line_total)}</span>
+                            {savingIds.has(item.id) && <Loader2 size={10} className="text-blue-400 animate-spin inline ml-1" />}
+                          </div>
+                          {!isSent && (
+                            <button
+                              onClick={() => deleteLineItem(item.id)}
+                              className="text-slate-700 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0"
+                            >
+                              <Trash2 size={14} />
+                            </button>
                           )}
                         </div>
-
-                        {/* Unit price */}
-                        <div className="w-20 text-right flex-shrink-0">
-                          <div className="text-slate-400 text-xs">
-                            {isSent ? fmt(item.unit_price) : (
-                              <EditableCell
-                                value={item.unit_price != null ? +item.unit_price.toFixed(2) : null}
-                                type="number"
-                                onSave={v => updateLineItem(item.id, 'unit_price', v)}
-                              />
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Line total */}
-                        <div className="w-20 text-right flex-shrink-0">
-                          <span className="text-white font-bold text-sm">{fmt(item.line_total)}</span>
-                          {savingIds.has(item.id) && <Loader2 size={10} className="text-blue-400 animate-spin inline ml-1" />}
-                        </div>
-
-                        {/* Delete */}
-                        {!isSent && (
-                          <button
-                            onClick={() => deleteLineItem(item.id)}
-                            className="text-slate-700 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        )}
-                      </div>
+                      )
                     ))}
                   </div>
                 </div>

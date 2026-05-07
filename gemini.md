@@ -13,11 +13,11 @@
 # STATUS: ACTIVE DEVELOPMENT
 # CURRENT AI: Claude  ← update when you switch
 
-- **Completed this session:** Built the AI-Driven Parts Sourcing Pipeline. Created `inventory` table migration. Migrated `IgnitionStok.jsx` to Supabase. Added routing priority to vendor directory in `DataBridge.js` and `IgnitionProc.jsx`. Built `_source_parts()` AI engine in `shop_estimate.py` to auto-check inventory and fallback to highest priority vendor. Built server-side `POST /api/jobs/{job_id}/generate-pos` and wired it to customer signature callback in `IgnitionEstimate.jsx`.
-- **Next task:** Backlog features (Margin pricing UI, PDF generation, Hardware ledger) or further agent refinement.
-- **Last file edited:** _(update before handoff)_
-- **Last command run:** _(update before handoff)_
-- **Tests passing:** _(update before handoff)_
+- **Completed this session:** Phase 1 — Margin & Money Flow. Wired `PriceField.jsx` into PART line items in `IgnitionEstimate.jsx`. Added `handlePriceOverride()` to save `is_manual_override`, `original_calculated_price`, `price_leakage` to Supabase on every admin override. Created `supabase_price_override_migration.sql` (3 new columns on `estimate_line_items`). LABOR/SUBLET/FEE/MISC rows unchanged.
+- **Next task:** Phase 2a — PDF invoice generation.
+- **Last file edited:** `modules/IgnitionEstimate.jsx`
+- **Last command run:** `git push origin main`
+- **Tests passing:** Manual — build compiles, PriceField renders for PART items
 - **Session ended by:** Claude — 2026-05-07
 
 **Prerequisite status:**
@@ -113,6 +113,8 @@ intake → queued → in_eval → eval_done → estimating → pending_auth
 7. supabase_error_events_migration.sql
 8. supabase_feature_events_migration.sql
 9. supabase_monitoring_alerts_migration.sql
+10. supabase_inventory_migration.sql
+11. supabase_price_override_migration.sql
 
 **Module build status:**
 - `IgnitionIntake.jsx` ✅ — 3-phase intake form, writes customers/customer_vehicles/jobs to Supabase
@@ -150,7 +152,7 @@ intake → queued → in_eval → eval_done → estimating → pending_auth
 - [x] Repair workflow: labor clock-in/out, repair_logs entries, supplement branch detection
 
 **Backlog (post-pilot):**
-- [ ] Slab margin pricing engine UI (MarginEngine.js exists, needs wiring into estimate flow)
+- [x] Slab margin pricing engine UI — PriceField wired into PART line items in IgnitionEstimate, Relationship Tax metadata saved to Supabase
 - [ ] PDF invoice and DOT form generation
 - [ ] Hardware ledger and tool tracking (STOK extension)
 - [ ] Velocity leaderboard in OMNI (efficiency % per tech, management toggle)
