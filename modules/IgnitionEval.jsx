@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import DataBridge from '../DataBridge';
+import IgnitionVIN from './IgnitionVIN';
 
 // ─── constants ────────────────────────────────────────────────────────────────
 
@@ -72,6 +73,7 @@ export default function IgnitionEval({ job, onBack, onEvalSubmitted }) {
   const memberId    = currentUser?.member_id;
 
   const [view, setView]                 = useState('EVAL');
+  const [vinValidated, setVinValidated] = useState(false);
   const [evalId, setEvalId]             = useState(null);
   const [laborEntryId, setLaborEntryId] = useState(null);
   const [clockedInAt, setClockedInAt]   = useState(null);
@@ -136,23 +138,14 @@ export default function IgnitionEval({ job, onBack, onEvalSubmitted }) {
       }
       setEvalId(eid);
 
-      // 2. Find open labor entry or create one
+      // 2. Find open labor entry or wait for VIN validation to create one
       const { data: openEntry } = await supabase.from('labor_entries').select('*')
         .eq('job_id', job.id).eq('shop_id', shopId).is('clocked_out', null).limit(1);
 
       if (openEntry?.length) {
         setLaborEntryId(openEntry[0].id);
         setClockedInAt(openEntry[0].clocked_in);
-      } else {
-        const { data: entry, error: entryErr } = await supabase.from('labor_entries').insert({
-          job_id:     job.id,
-          shop_id:    shopId,
-          tech_id:    memberId,
-          clocked_in: new Date().toISOString(),
-        }).select().single();
-        if (entryErr) throw entryErr;
-        setLaborEntryId(entry.id);
-        setClockedInAt(entry.clocked_in);
+        setVinValidated(true); // Already clocked in, skip VIN gate
       }
 
       // 3. Advance job to in_eval if still at intake/queued
@@ -255,6 +248,14 @@ export default function IgnitionEval({ job, onBack, onEvalSubmitted }) {
     if (match) await supabase.storage.from('eval-photos').remove([match[1]]);
   };
 
+  const suspendEval = async () => {
+    if (laborEntryId && clockedInAt) {
+      const duration_minutes = Math.floor((Date.now() - new Date(clockedInAt).getTime()) / 60000);
+      await supabase.from('labor_entries').update({ clocked_out: new Date().toISOString(), duration_minutes }).eq('id', laborEntryId);
+    }
+    onBack();
+  };
+
   // ── submit ─────────────────────────────────────────────────────────────────
 
   const canSubmit = techNotes.trim().length > 0 || dtcCodes.length > 0;
@@ -320,6 +321,46 @@ export default function IgnitionEval({ job, onBack, onEvalSubmitted }) {
   );
 
   // ─────────────────────────────────────────────────────────────────────────
+  // RENDER: VIN GATE
+  // ─────────────────────────────────────────────────────────────────────────
+
+  if (!vinValidated) return (
+    <div className="fixed inset-0 z-50 bg-black flex flex-col">
+      <div className="p-4 flex items-center justify-between border-b border-slate-800 bg-slate-900">
+        <button onClick={onBack} className="text-slate-400 hover:text-white flex items-center gap-2 text-xs font-black uppercase">
+          <ArrowLeft size={16} /> Cancel Eval
+        </button>
+        <span className="text-blue-500 font-black italic uppercase tracking-widest text-xs">Step 1: Validate Vehicle</span>
+      </div>
+      <div className="flex-1 relative">
+        <IgnitionVIN 
+          jobData={{ jobId: job.id, name: job.customer?.name, vin: job.vehicle?.vin, year: job.vehicle?.year, make: job.vehicle?.make, model: job.vehicle?.model }} 
+          onComplete={async (decodedResult) => {
+            try {
+              // Start the clock and lock in the phase
+              const { data: entry } = await supabase.from('labor_entries').insert({
+                job_id:     job.id,
+                shop_id:    shopId,
+                tech_id:    memberId,
+                phase:      'EVAL',
+                clocked_in: new Date().toISOString(),
+              }).select().single();
+              if (entry) {
+                setLaborEntryId(entry.id);
+                setClockedInAt(entry.clocked_in);
+              }
+              setVinValidated(true);
+            } catch (err) {
+              console.error('Failed to start eval clock', err);
+              setVinValidated(true); // Let them through anyway
+            }
+          }} 
+        />
+      </div>
+    </div>
+  );
+
+  // ─────────────────────────────────────────────────────────────────────────
   // RENDER: EVAL FORM
   // ─────────────────────────────────────────────────────────────────────────
 
@@ -329,7 +370,7 @@ export default function IgnitionEval({ job, onBack, onEvalSubmitted }) {
 
         {/* Header */}
         <div className="flex items-center gap-4 mb-6">
-          <button onClick={onBack} className="text-slate-500 hover:text-white transition-colors">
+          <button onClick={suspendEval} className="text-slate-500 hover:text-white transition-colors bg-slate-800 p-2 rounded-xl">
             <ArrowLeft size={20} />
           </button>
           <div className="flex-1">
@@ -339,11 +380,16 @@ export default function IgnitionEval({ job, onBack, onEvalSubmitted }) {
             </p>
           </div>
           {clockedInAt && (
-            <div className="text-right flex-shrink-0">
-              <p className="text-[8px] font-black text-slate-600 uppercase tracking-widest mb-0.5 flex items-center gap-1 justify-end">
-                <Clock size={8} /> On Clock
-              </p>
-              <span className="text-emerald-400 font-black font-mono text-sm tabular-nums">{clockDisplay}</span>
+            <div className="text-right flex-shrink-0 flex items-center gap-4">
+              <div>
+                <p className="text-[8px] font-black text-slate-600 uppercase tracking-widest mb-0.5 flex items-center gap-1 justify-end">
+                  <Clock size={8} /> Eval Time
+                </p>
+                <span className="text-emerald-400 font-black font-mono text-sm tabular-nums">{clockDisplay}</span>
+              </div>
+              <button onClick={suspendEval} className="bg-orange-600/20 text-orange-500 px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest">
+                Pause
+              </button>
             </div>
           )}
         </div>

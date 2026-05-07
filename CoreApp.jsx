@@ -27,7 +27,8 @@ import IgnitionAudit from './modules/IgnitionAudit';
 import IgnitionIntake from './modules/IgnitionIntake';
 import IgnitionEstimate from './modules/IgnitionEstimate';
 import IgnitionEval from './modules/IgnitionEval';
-import { Lock, LayoutDashboard, Truck, Activity, ShoppingCart, Search, Package, BarChart3, ShieldCheck, Users, Map, Store, ScanLine, QrCode, DollarSign, RefreshCw, UserPlus, ClipboardCheck, Cog, FileSearch, CheckCircle, ChevronRight, FilePlus, ClipboardList, Microscope } from 'lucide-react';
+import IgnitionInvoice from './modules/IgnitionInvoice';
+import { Lock, LayoutDashboard, Truck, Activity, ShoppingCart, Search, Package, BarChart3, ShieldCheck, Users, Map, Store, ScanLine, QrCode, DollarSign, RefreshCw, UserPlus, ClipboardCheck, Cog, FileSearch, CheckCircle, ChevronRight, FilePlus, ClipboardList, Microscope, Receipt } from 'lucide-react';
 
 /**
  * UI: Forgot PIN flow — staff enters 6-digit reset code from admin, sets new PIN
@@ -743,6 +744,16 @@ const CoreApp = () => {
     });
   };
 
+  // GLOBAL JOB UPDATE HANDLER: Syncs local state and instantly pushes to Supabase
+  const handleUpdateJob = (job) => {
+    setActiveJob(job);
+    DataBridge.save('active_job_context', job);
+    setAllJobs(prev => prev.map(j => (j.id === job.id ? job : j)));
+    
+    // Push the change directly to Supabase so all devices see it immediately
+    DataBridge.pushCloudSync([job]);
+  };
+
   // CLOUD SYNC: Pull latest jobs from Python backend on mount
   useEffect(() => {
     fetchCloudData();
@@ -846,10 +857,7 @@ const CoreApp = () => {
       <div className="flex flex-col h-screen bg-black text-slate-200 overflow-hidden">
          <IgnitionKosk
            activeJob={activeJob}
-           onUpdateJob={(job) => {
-             setActiveJob(job);
-             DataBridge.save('active_job_context', job);
-           }}
+           onUpdateJob={handleUpdateJob}
            onExitKiosk={() => setIsKioskMode(false)}
            onStartEval={() => {
              setIsKioskMode(false);
@@ -999,6 +1007,12 @@ const CoreApp = () => {
           </AccessGatekeeper>
         )}
 
+        {activeModule === 'INVOICE' && (
+          <AccessGatekeeper requiredPermissions={['view_port']}>
+            <IgnitionInvoice onBack={() => setActiveModule('DASHBOARD')} />
+          </AccessGatekeeper>
+        )}
+
         {activeModule === 'EVAL' && (
           <AccessGatekeeper requiredPermissions={['view_flux']}>
             <IgnitionEval
@@ -1025,7 +1039,7 @@ const CoreApp = () => {
             <IgnitionPort 
               activeJob={activeJob} 
               allJobs={allJobs} 
-              onUpdateJob={(j) => { setActiveJob(j); DataBridge.save('active_job_context', j); }} 
+              onUpdateJob={handleUpdateJob} 
               onSelectJob={(j) => { setActiveJob(j); DataBridge.save('active_job_context', j); }} 
             />
           </AccessGatekeeper>
@@ -1064,6 +1078,7 @@ const CoreApp = () => {
                 { id: 'INTAKE',    label: 'New RO',    icon: FilePlus,     color: 'text-emerald-400', bg: 'bg-slate-800' },
               { id: 'ESTIMATES', label: 'Estimates', icon: ClipboardList, color: 'text-sky-400',     bg: 'bg-slate-800' },
               { id: 'EVAL',      label: 'Tech Eval', icon: Microscope,    color: 'text-blue-400',    bg: 'bg-slate-800' },
+              { id: 'INVOICE',   label: 'Invoice',   icon: Receipt,       color: 'text-emerald-400', bg: 'bg-slate-800' },
               { id: 'OMNI',      label: 'Command',   icon: BarChart3,     color: 'text-amber-400',   bg: 'bg-slate-800' },
                 { id: 'HUB', label: 'Dispatch', icon: Map, color: 'text-blue-500', bg: 'bg-slate-800' },
                 { id: 'FLUX', label: 'Workflow', icon: Truck, color: 'text-sky-400', bg: 'bg-slate-800' },
@@ -1109,10 +1124,7 @@ const CoreApp = () => {
         {activeModule === 'FLUX' && (
           <AccessGatekeeper requiredPermissions={['view_flux']}>
             <TrialGatekeeper moduleKey="FLUX" moduleName="Ignition Flux">
-              <IgnitionFlux activeJob={activeJob} onUpdateJob={(job) => {
-                setActiveJob(job);
-                DataBridge.save('active_job_context', job);
-              }} />
+              <IgnitionFlux activeJob={activeJob} onUpdateJob={handleUpdateJob} />
             </TrialGatekeeper>
           </AccessGatekeeper>
         )}
@@ -1130,7 +1142,7 @@ const CoreApp = () => {
             <TrialGatekeeper moduleKey="CODE" moduleName="CODE // DTC Cipher">
               <IgnitionCipher 
                 activeJob={activeJob} 
-                onUpdateJob={(job) => { setActiveJob(job); DataBridge.save('active_job_context', job); }} 
+                onUpdateJob={handleUpdateJob} 
                 onNavigateToStok={(query) => {
                   setStokSearchQuery(query);
                   setActiveModule('STOK');

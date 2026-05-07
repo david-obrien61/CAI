@@ -4,13 +4,14 @@
  * DESC: Simplified, high-contrast UI for shop-floor operations.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Clock, Barcode, ClipboardList, Mic, Play, Square, CheckCircle, Unlock, Activity, AlertOctagon, Microscope } from 'lucide-react';
 import DataBridge from '../DataBridge';
 import { useIgnitionVoice } from '../hooks/useIgnitionVoice';
 import IgnitionHandover from './IgnitionHandover';
 import { usePowerSense } from '../hooks/usePowerSense';
 import SlideToComplete from './SlideToComplete';
+import { supabase } from '../supabase';
 
 const IgnitionKosk = ({ activeJob, onUpdateJob, onExitKiosk, onStartEval }) => {
   const [isClockedIn, setIsClockedIn] = useState(false);
@@ -20,6 +21,48 @@ const IgnitionKosk = ({ activeJob, onUpdateJob, onExitKiosk, onStartEval }) => {
   })();
 
   const [showHandover, setShowHandover] = useState(false);
+  const [laborEntryId, setLaborEntryId] = useState(null);
+  const [repairTasks, setRepairTasks] = useState([]);
+  const [completedTaskIds, setCompletedTaskIds] = useState([]);
+  const [qcChecked, setQcChecked] = useState(false);
+
+  useEffect(() => {
+    if (!activeJob?.id) return;
+    const techId = DataBridge.load('current_user')?.id || 'TECH_01';
+    
+    supabase.from('labor_entries')
+      .select('id')
+      .eq('job_id', activeJob.id)
+      .eq('tech_id', techId)
+      .is('clocked_out', null)
+      .maybeSingle()
+      .then(({ data }) => {
+         if (data) {
+           setIsClockedIn(true);
+           setLaborEntryId(data.id);
+         } else {
+           setIsClockedIn(false);
+           setLaborEntryId(null);
+         }
+      });
+  }, [activeJob?.id]);
+
+  useEffect(() => {
+    if (activeJob?.id && ['AUTHORIZED', 'in_repair', 'supplement', 'repair_done'].includes(activeJob.status?.toUpperCase() || '')) {
+      supabase.from('estimate_line_items')
+        .select('*')
+        .eq('job_id', activeJob.id)
+        .eq('auth_status', 'approved')
+        .then(({ data }) => setRepairTasks(data || []));
+        
+      supabase.from('repair_logs')
+        .select('estimate_line_item_id')
+        .eq('job_id', activeJob.id)
+        .then(({ data }) => setCompletedTaskIds((data || []).map(d => d.estimate_line_item_id)));
+    } else {
+      setRepairTasks([]);
+    }
+  }, [activeJob?.id, activeJob?.status]);
 
   const handleVoiceCommand = (cmd) => {
     if (cmd === 'suspend') {
@@ -34,7 +77,6 @@ const IgnitionKosk = ({ activeJob, onUpdateJob, onExitKiosk, onStartEval }) => {
         handover: { note, isOperable, timestamp: Date.now() }
      };
      onUpdateJob(updatedJob);
-     DataBridge.save('active_job_context', updatedJob);
      setShowHandover(false);
   };
 
@@ -51,8 +93,6 @@ const IgnitionKosk = ({ activeJob, onUpdateJob, onExitKiosk, onStartEval }) => {
       
       // Hoisted state update
       onUpdateJob(updatedJob);
-      // Persistent state update
-      DataBridge.save('active_job_context', updatedJob);
     }
   };
 
@@ -97,49 +137,59 @@ const IgnitionKosk = ({ activeJob, onUpdateJob, onExitKiosk, onStartEval }) => {
       {/* PRIMARY KIOSK ACTIONS */}
       <div className="grid grid-cols-1 gap-4 flex-1">
         
-        {/* TIME CLOCK TOGGLE */}
-        <div className="grid grid-cols-2 gap-4">
+        {/* SOFT-GATED REPAIR CLOCK: PARTS ACKNOWLEDGMENT */}
+        {!isClockedIn && activeJob?.status === 'AUTHORIZED' && (
           <button 
-            onClick={() => {
-              if (!isClockedIn) {
-                 const assignedSize = activeJob?.assigned_crew_size || 1;
-                 const currentTechs = activeJob?.active_techs?.length || 0;
-                 if (assignedSize !== 'ALL' && currentTechs >= assignedSize) {
-                    alert(`CREW CAP REACHED: Work Order designated for ${assignedSize} mechanic(s) maximum.`);
-                    return;
-                 }
-                 const newTechs = [...(activeJob?.active_techs || []), 'TECH_01'];
-                 const updated = { ...activeJob, active_techs: newTechs };
-                 onUpdateJob(updated);
-                 DataBridge.save('active_job_context', updated);
-              } else {
-                 const newTechs = (activeJob?.active_techs || []).filter(t => t !== 'TECH_01');
-                 const updated = { ...activeJob, active_techs: newTechs };
-                 onUpdateJob(updated);
-                 DataBridge.save('active_job_context', updated);
+            onClick={async () => {
+              const techId = DataBridge.load('current_user')?.id || 'TECH_01';
+              const assignedSize = activeJob?.assigned_crew_size || 1;
+              const currentTechs = activeJob?.active_techs?.length || 0;
+              if (assignedSize !== 'ALL' && currentTechs >= assignedSize) {
+                 alert(`CREW CAP REACHED: Work Order designated for ${assignedSize} mechanic(s) maximum.`);
+                 return;
               }
-              setIsClockedIn(!isClockedIn);
+              
+              const { data } = await supabase.from('labor_entries').insert({
+                 job_id: activeJob.id,
+                 shop_id: DataBridge.getShopId(),
+                 tech_id: techId,
+                 phase: 'REPAIR',
+                 clocked_in: new Date().toISOString()
+              }).select('id').single();
+              
+              if (data) setLaborEntryId(data.id);
+              
+              const newTechs = [...(activeJob?.active_techs || []), techId];
+              onUpdateJob({ ...activeJob, active_techs: newTechs, status: 'in_repair' });
+              setIsClockedIn(true);
             }}
-            className={`h-32 rounded-3xl flex flex-col items-center justify-center gap-2 transition-all active:scale-95 ${
-              isClockedIn ? 'bg-red-600 shadow-lg shadow-red-900/20 col-span-1' : 'bg-emerald-600 shadow-lg shadow-emerald-900/20 col-span-2'
-            }`}
+            className="h-32 bg-emerald-600 rounded-3xl flex flex-col items-center justify-center gap-2 transition-all active:scale-95 shadow-lg shadow-emerald-900/20 w-full"
           >
-            {isClockedIn ? <Square size={32} fill="white" /> : <Play size={32} fill="white" />}
-            <span className="text-xl font-black uppercase italic tracking-tighter">
-              {isClockedIn ? 'Punch Out' : 'Punch In'}
-            </span>
+            <Play size={32} fill="white" />
+            <span className="text-xl font-black uppercase italic tracking-tighter text-white">Parts in Bay: Acknowledge & Begin Repair</span>
           </button>
+        )}
 
-          {isClockedIn && (
-            <button 
-              onClick={() => setShowHandover(true)}
-              className="h-32 bg-slate-800 border-2 border-slate-700 rounded-3xl flex flex-col items-center justify-center gap-2 transition-all hover:border-orange-500 active:scale-95"
-            >
-              <AlertOctagon size={32} className="text-orange-500" />
-              <span className="text-xl font-black uppercase italic tracking-tighter text-white">Suspend</span>
-            </button>
-          )}
-        </div>
+        {isClockedIn && (
+          <button 
+            onClick={async () => {
+              const techId = DataBridge.load('current_user')?.id || 'TECH_01';
+              if (laborEntryId) {
+                await supabase.from('labor_entries').update({
+                  clocked_out: new Date().toISOString()
+                }).eq('id', laborEntryId);
+              }
+              const newTechs = (activeJob?.active_techs || []).filter(t => t !== techId);
+              onUpdateJob({ ...activeJob, active_techs: newTechs });
+              setIsClockedIn(false);
+              setLaborEntryId(null);
+            }}
+            className="h-32 bg-slate-800 border-2 border-slate-700 rounded-3xl flex flex-col items-center justify-center gap-2 transition-all hover:border-orange-500 active:scale-95 w-full"
+          >
+            <AlertOctagon size={32} className="text-orange-500" />
+            <span className="text-xl font-black uppercase italic tracking-tighter text-white">Suspend / Coffee Break</span>
+          </button>
+        )}
 
         {/* SCAN / INVENTORY ACTION */}
         <button className="h-28 bg-slate-800 rounded-3xl border-2 border-slate-700 flex flex-col items-center justify-center gap-2 active:scale-95">
@@ -158,18 +208,73 @@ const IgnitionKosk = ({ activeJob, onUpdateJob, onExitKiosk, onStartEval }) => {
           </button>
         )}
 
-        {/* EXTERNAL PARTS ETA TRACKER */}
-        <div className="bg-slate-900 border border-orange-500/30 p-4 rounded-3xl flex justify-between items-center relative overflow-hidden">
-          <div className="absolute top-0 left-0 bottom-0 w-1 bg-orange-500 animate-pulse"></div>
-          <div>
-             <p className="text-[10px] font-black text-orange-500 uppercase tracking-widest pl-2">External PO Shadow</p>
-             <h4 className="text-sm font-bold text-white uppercase italic pl-2">NAPA Auto Parts - PO-9928</h4>
+        {/* REPAIR CHECKLIST (Visible when authorized or in_repair) */}
+        {repairTasks.length > 0 && (
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 flex flex-col gap-4">
+            <h3 className="text-xs font-black text-slate-500 uppercase flex items-center gap-2"><Activity size={14} /> Repair Checklist</h3>
+            {repairTasks.map(task => {
+              const isCompleted = completedTaskIds.includes(task.id);
+              return (
+                <div key={task.id} className={`flex justify-between items-center p-4 border rounded-2xl ${isCompleted ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-slate-800 border-slate-700'}`}>
+                  <div>
+                    <p className={`font-bold ${isCompleted ? 'text-emerald-500 line-through opacity-70' : 'text-white'}`}>{task.item_type} - {task.description}</p>
+                    {task.labor_hours && <p className="text-xs text-slate-400 mt-1">{task.labor_hours} hours booked</p>}
+                  </div>
+                  {!isCompleted && (
+                    <div className="flex gap-2">
+                      <button onClick={async () => {
+                         const techId = DataBridge.load('current_user')?.id || 'TECH_01';
+                         await supabase.from('repair_logs').insert({
+                            job_id: activeJob.id,
+                            shop_id: DataBridge.getShopId(),
+                            tech_id: techId,
+                            estimate_line_item_id: task.id,
+                            description: task.description,
+                            outcome: 'completed'
+                         });
+                         setCompletedTaskIds(prev => [...prev, task.id]);
+                      }} className="bg-emerald-600/20 text-emerald-500 p-3 rounded-xl hover:bg-emerald-600 hover:text-white transition-colors active:scale-95">
+                        <CheckCircle size={24} />
+                      </button>
+                      <button onClick={async () => {
+                         const note = prompt("Flag Supplement for " + task.description + "\nEnter reason:");
+                         if (!note) return;
+                         const techId = DataBridge.load('current_user')?.id || 'TECH_01';
+                         await supabase.from('repair_logs').insert({
+                            job_id: activeJob.id,
+                            shop_id: DataBridge.getShopId(),
+                            tech_id: techId,
+                            estimate_line_item_id: task.id,
+                            description: task.description,
+                            outcome: 'supplement',
+                            tech_notes: note
+                         });
+                         setCompletedTaskIds(prev => [...prev, task.id]);
+                         onUpdateJob({ ...activeJob, status: 'supplement' });
+                      }} className="bg-orange-600/20 text-orange-500 p-3 rounded-xl hover:bg-orange-600 hover:text-white transition-colors active:scale-95">
+                        <AlertOctagon size={24} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+            
+            {/* MANDATORY QC GATE */}
+            <div className={`flex justify-between items-center p-4 border rounded-2xl ${qcChecked ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-slate-800 border-orange-500/40'}`}>
+              <div>
+                <p className={`font-bold ${qcChecked ? 'text-emerald-500 line-through opacity-70' : 'text-orange-400'}`}>MANDATORY: QC / Test Drive Completed</p>
+                <p className="text-xs text-slate-400 mt-1">Required to close out repair</p>
+              </div>
+              {!qcChecked && (
+                <button onClick={() => setQcChecked(true)} className="bg-emerald-600/20 text-emerald-500 p-3 rounded-xl hover:bg-emerald-600 hover:text-white transition-colors active:scale-95">
+                  <CheckCircle size={24} />
+                </button>
+              )}
+            </div>
+
           </div>
-          <div className="text-right">
-             <p className="text-[9px] font-black text-slate-500 uppercase">Parts Inbound</p>
-             <span className="text-xl font-black text-white italic tabular-nums">12 MINS</span>
-          </div>
-        </div>
+        )}
 
         {/* ACTIVE TASK / PMI WORKFLOW */}
         <div className="bg-slate-900 rounded-3xl border border-slate-800 p-6 flex flex-col justify-between">
@@ -223,12 +328,6 @@ const IgnitionKosk = ({ activeJob, onUpdateJob, onExitKiosk, onStartEval }) => {
               <Mic size={20} className="text-blue-500" />
               <span className="text-xs font-black uppercase">Dictate Notes</span>
             </button>
-          <div className="flex-1 flex items-center">
-             <SlideToComplete onComplete={() => {
-                DataBridge.smartSync('KOSK_TECH_ACTION', { action: "Complete Task", timestamp: Date.now() });
-                alert("Smart Action Triggered: Task Completed.");
-             }} />
-          </div>
           </div>
         </div>
       </div>
@@ -236,15 +335,32 @@ const IgnitionKosk = ({ activeJob, onUpdateJob, onExitKiosk, onStartEval }) => {
       {/* THE GREASEMONKEY FAST-ACTION BAR */}
       <div className="fixed bottom-0 left-0 right-0 p-4 bg-slate-900/90 backdrop-blur-md pb-24">
         <SlideToComplete 
-          onComplete={() => {
+          disabled={repairTasks.length > 0 && !qcChecked}
+          onComplete={async () => {
+            if (repairTasks.length > 0 && !qcChecked) {
+                alert("QC / Test Drive is required before completion.");
+                return;
+            }
             if (isDotMandated) {
                 alert("DOT MANDATE ACTIVE: Digital Inspection Form Required before completion.");
                 return;
             }
-            DataBridge.smartSync('KOSK_TECH_ACTION', { action: "Complete Inspection", timestamp: Date.now() });
-            alert("Smart Action Triggered: Auto-advancing workflow! (Safety Gates Bypassed)");
+            if (isClockedIn && laborEntryId) {
+               await supabase.from('labor_entries').update({
+                 clocked_out: new Date().toISOString()
+               }).eq('id', laborEntryId);
+               setIsClockedIn(false);
+               setLaborEntryId(null);
+            }
+            
+            const techId = DataBridge.load('current_user')?.id || 'TECH_01';
+            const newTechs = (activeJob?.active_techs || []).filter(t => t !== techId);
+            onUpdateJob({ ...activeJob, active_techs: newTechs, status: 'repair_done' });
           }}
         />
+        {repairTasks.length > 0 && !qcChecked && (
+          <p className="text-center text-orange-500 text-[10px] font-black uppercase mt-2">Finish QC to unlock completion slider</p>
+        )}
       </div>
 
     </div>

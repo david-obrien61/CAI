@@ -7,6 +7,7 @@
 import React, { useState, useEffect } from 'react';
 import { BarChart3, Users, DollarSign, Package, ArrowUpRight, TrendingUp, Mic, TrendingDown, UserPlus, QrCode } from 'lucide-react';
 import DataBridge from '../DataBridge';
+import { supabase } from '../supabase';
 
 const StaffManagement = () => {
   const [name, setName] = useState('');
@@ -206,62 +207,72 @@ const IgnitionOmni = ({ activeJob, onEnterKiosk }) => {
   const [stats, setStats]               = useState({ revenue: 0, jobCount: 0, inventoryValue: 0, efficiency: 0 });
 
   useEffect(() => {
-    // ── Real job data ────────────────────────────────────────────────────────
-    const jobs = DataBridge.load('jobs_table') || [];
-    const now  = new Date();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const fetchData = async () => {
+      const shopId = DataBridge.getShopId();
+      if (!shopId) return;
 
-    const monthJobs    = jobs.filter(j => new Date(j.createdAt || j.created_at) >= monthStart);
-    const completedJobs = monthJobs.filter(j => j.status === 'COMPLETE' || j.status === 'AUTHORIZED');
-    const monthRevenue  = completedJobs.reduce((sum, j) => {
-      const parts  = (j.suggestedParts || []).reduce((s, p) => s + (p.retailPrice || 0), 0);
-      const labor  = (j.tasks || []).reduce((s, t) => s + ((t.billed_hours || 0) * (t.rate || 0)), 0);
-      return sum + parts + labor;
-    }, 0);
+      const now = new Date();
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    // ── Real inventory value ─────────────────────────────────────────────────
-    const inventory    = DataBridge.load('inventory_items') || [];
-    const inventoryVal = inventory.reduce((sum, i) => sum + ((i.cost || 0) * (i.qty || 0)), 0);
+      // 1. Fetch live jobs from Supabase
+      const { data: monthJobs } = await supabase
+        .from('jobs')
+        .select('*')
+        .eq('shop_id', shopId)
+        .gte('created_at', monthStart.toISOString());
+      
+      const jobsList = monthJobs || [];
+      const completedJobs = jobsList.filter(j => j.status === 'closed' || j.status === 'invoiced' || j.status === 'COMPLETE' || j.status === 'AUTHORIZED');
+      
+      const monthRevenue = completedJobs.reduce((sum, j) => {
+        // Fallback for legacy JSONB structure if new rows don't have suggestedParts
+        const parts = (j.suggestedParts || j.parts || []).reduce((s, p) => s + (p.retailPrice || p.retail_price || 0), 0);
+        const labor = (j.tasks || j.labor || []).reduce((s, t) => s + ((t.billed_hours || 0) * (t.rate || 0)), 0);
+        return sum + parts + labor;
+      }, 0);
 
-    // ── Efficiency: % of jobs completed vs started this month ───────────────
-    const efficiency = monthJobs.length > 0
-      ? Math.round((completedJobs.length / monthJobs.length) * 100)
-      : 0;
+      // 2. Mock inventory for now (until STOK migration)
+      const inventory = DataBridge.load('inventory_items') || [];
+      const inventoryVal = inventory.reduce((sum, i) => sum + ((i.cost || 0) * (i.qty || 0)), 0);
 
-    setStats({
-      revenue:        monthRevenue,
-      jobCount:       monthJobs.length,
-      inventoryValue: inventoryVal,
-      efficiency,
-    });
+      const efficiency = jobsList.length > 0
+        ? Math.round((completedJobs.length / jobsList.length) * 100)
+        : 0;
 
-    // ── Trial modules ────────────────────────────────────────────────────────
-    const subs = DataBridge.load('system_subscriptions') || {};
-    const trls = [];
-    Object.keys(subs).forEach(key => {
-      const mod = subs[key];
-      if (mod.trialActive) {
-        const { daysRemaining } = DataBridge.checkTrialStatus(key);
-        trls.push({ module: `${key} MODULE`, daysLeft: daysRemaining });
-      }
-    });
-    setTrialModules(trls);
+      setStats({
+        revenue: monthRevenue,
+        jobCount: jobsList.length,
+        inventoryValue: inventoryVal,
+        efficiency,
+      });
 
-    // ── Leakage audit from real authorized jobs ───────────────────────────────
-    const auditRows = completedJobs
-      .filter(j => (j.suggestedParts || []).some(p => p.wholesaleCost && p.retailPrice))
-      .map(j => {
-        const standardTotal = (j.suggestedParts || []).reduce((s, p) => s + (p.retailPrice || 0), 0);
-        const actualTotal   = (j.suggestedParts || []).reduce((s, p) => s + ((p.wholesaleCost || 0) * 1.25 * (p.qty || 1)), 0);
-        return { customer: j.name || 'Unknown', tier: j.customerTier || 'STANDARD', standardPrice: standardTotal, actualPrice: actualTotal };
-      })
-      .filter(r => r.standardPrice > 0);
+      // 3. Subscriptions & Trials
+      const subs = DataBridge.load('system_subscriptions') || {};
+      const trls = [];
+      Object.keys(subs).forEach(key => {
+        const mod = subs[key];
+        if (mod.trialActive) {
+          const { daysRemaining } = DataBridge.checkTrialStatus(key);
+          trls.push({ module: `${key} MODULE`, daysLeft: daysRemaining });
+        }
+      });
+      setTrialModules(trls);
 
-    if (auditRows.length > 0) {
+      // 4. Leakage Audit
+      const auditRows = completedJobs
+        .filter(j => (j.suggestedParts || j.parts || []).some(p => p.wholesaleCost || p.wholesale_cost))
+        .map(j => {
+          const legacyParts = (j.suggestedParts || j.parts || []);
+          const standardTotal = legacyParts.reduce((s, p) => s + (p.retailPrice || p.retail_price || 0), 0);
+          const actualTotal = legacyParts.reduce((s, p) => s + ((p.wholesaleCost || p.wholesale_cost || 0) * 1.25 * (p.qty || 1)), 0);
+          return { customer: j.customer?.name || j.name || 'Unknown', tier: j.customer?.tier || j.customerTier || 'STANDARD', standardPrice: standardTotal, actualPrice: actualTotal };
+        })
+        .filter(r => r.standardPrice > 0);
+
       setAuditData(auditRows);
-    } else {
-      setAuditData([]);
-    }
+    };
+
+    fetchData();
   }, []);
 
   return (

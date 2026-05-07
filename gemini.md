@@ -8,10 +8,9 @@
 > This section is rewritten at the end of every session by whichever AI is finishing.
 > Read this first — it tells you exactly where to pick up.
 
-- **Completed this session:** Parts sourcing trigger implemented in `IgnitionEstimate.jsx`'s `handleAuthorized`. Generates `purchase_orders` in Supabase for out-of-stock parts comparing against a mock STOK inventory.
-- **Next task:** Invoice + closeout: generate invoice from authorized estimate_line_items → invoice_line_items snapshot → payment → jobs.status='closed'
+- **Completed this session:** Built the "Repair Workflow" within `IgnitionKosk.jsx`. Implemented dynamic fetching of approved `estimate_line_items`. Built Labor Time Tracking (writes to `labor_entries` on punch in/out). Built Repair Checklist (writes to `repair_logs` for completed items and handles supplement branch detection). Pilot critical path is functionally complete.
+- **Next task:** Backlog features (Margin pricing UI, PDF generation, Hardware ledger).
 - **Prerequisite note for pilot:** `eval-photos` Supabase Storage bucket must be created manually in the Supabase dashboard before photo upload in `IgnitionEval.jsx` works. Bucket name: `eval-photos`, set to public.
-- **Also pending:** Migrate `IgnitionFlux`, `IgnitionKosk`, `IgnitionOmni` from localStorage reads to Supabase queries.
 - **Session ended by:** Gemini — 2026-05-07
 
 **Collaboration workflow:**
@@ -19,6 +18,7 @@
 2. Paste output into `gemini_staging_inbox.md` pending section
 3. Tell Claude Code in chat: "look at the inbox and implement [feature]"
 4. Claude builds it natively, checks it off in the inbox, updates this file with status changes
+5. **CRITICAL:** ALWAYS update the handoff note before we lose context. I do not want to lose any effort.
 
 ## Architecture
 - **Frontend:** React + Vite (web), React Native + Expo (mobile), shared module codebase
@@ -77,9 +77,9 @@ intake → queued → in_eval → eval_done → estimating → pending_auth
 ## Active Tasks
 - [x] Zone 2 — Tech eval UI: `IgnitionEval.jsx` — DTC codes, photos, work items, labor clock, submit → eval_done
 - [x] Parts sourcing trigger: after authorization, split approved line items → in-stock pull vs. PO creation for out-of-stock
-- [ ] Invoice + closeout: generate invoice from authorized estimate_line_items → invoice_line_items snapshot → payment → jobs.status='closed'
-- [ ] Migrate FLUX, KOSK, OMNI to read job state from Supabase instead of localStorage
-- [ ] Repair workflow: labor clock-in/out, repair_logs entries, supplement branch detection
+- [x] Invoice + closeout: generate invoice from authorized estimate_line_items → invoice_line_items snapshot → payment → jobs.status='closed'
+- [x] Migrate FLUX, KOSK, OMNI to read job state from Supabase instead of localStorage
+- [x] Repair workflow: labor clock-in/out, repair_logs entries, supplement branch detection
 
 **Backlog (post-pilot):**
 - [ ] Slab margin pricing engine UI (MarginEngine.js exists, needs wiring into estimate flow)
@@ -100,6 +100,20 @@ intake → queued → in_eval → eval_done → estimating → pending_auth
 - `MarginEngine.js` — pricing formulas, do not change without a business decision
 - `dist/`, `__pycache__/`, `.vercel/` — never include in generated code or suggestions
 - Already-run SQL migration files — append new migrations, never edit existing ones
+
+## Shop Floor Philosophy: The Soft-Gated Workflow
+**Golden Rule:** If it takes more clicks than writing on paper, the techs won't use it.
+- Hide time clocks behind natural physical actions. Do not use generic "Punch In" buttons.
+- **Eval Phase:** Clock auto-starts when VIN is validated (`IgnitionVIN` gate). Clock auto-stops when Eval is submitted.
+- **Repair Phase:** Clock auto-starts when parts are acknowledged ("Parts in Bay"). Clock auto-stops when QC is completed and job is slid to complete.
+- **CRITICAL RULE FOR AI:** Never rebuild existing functionality. Always check the `/modules` folder for pre-built components (like `IgnitionVIN`) before proposing dummy fallbacks or placeholder buttons.
+
+## Compliance & PII Guardrails
+- **What PII we can store:** Customer Name, Phone Number, Email, Physical Address, and VIN.
+- **Where we can store PII:** ONLY in the `customers` and `customer_vehicles` Supabase tables.
+- **Local Storage:** Never store unencrypted PII in `DataBridge` or `localStorage`. Use UUID references instead.
+- **AI/External APIs:** Never send raw PII (Name, Phone, Email) to external LLMs or unauthorized third-party APIs. Anonymize payloads before sending.
+- **Audit:** Maintain strict audit logs for any bulk export or deletion of PII.
 
 ## Coding Standards
 - **Language:** JSX/React with hooks for frontend; Python 3 + FastAPI + Pydantic for backend
