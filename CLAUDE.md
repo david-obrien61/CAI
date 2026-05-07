@@ -4,6 +4,16 @@
 - Current phase: Active development — pilot prep
 - Last worked on: 2026-05-07 — Built IgnitionIntake.jsx (Zone 1), IgnitionEstimate.jsx (Zone 3 service writer), CustomerApprovalPortal.jsx (in-person e-sign), shop_estimate.py Railway estimate agent, supabase_job_lifecycle_migration.sql (13-table schema), wired CustomerApprovalPortal into IgnitionEstimate as fullscreen overlay
 
+## Handoff
+> This section is rewritten at the end of every session by whichever AI is finishing.
+> The next AI reads this first and picks up from here — no recap needed.
+
+- **Next task:** Zone 2 — Tech Eval UI (`modules/IgnitionFlux.jsx` or a new `IgnitionEval.jsx`)
+- **What it writes:** `evaluations` row (status=submitted), `dtc_codes` rows, `eval_photos` rows, `labor_entries` rows; on submit sets `jobs.status='eval_done'`
+- **Entry point:** Tech opens a job from KOSK/FLUX, taps "Start Evaluation", lands in the eval form
+- **Key constraint:** The estimate agent (`shop_estimate.py`) reads from `evaluations` + `dtc_codes` — structured DTC rows are what feed the AI, not free text
+- **Session ended by:** Claude — 2026-05-07
+
 ## Architecture
 - **Frontend:** React + Vite (web), React Native + Expo (mobile), shared module codebase
 - **Routing:** `CoreApp.jsx` — `activeModule` string state switches rendered module; `AccessGatekeeper` wraps modules with `requiredPermissions`

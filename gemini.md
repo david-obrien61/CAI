@@ -4,6 +4,16 @@
 - Current phase: Active development — pilot prep
 - Last worked on: 2026-05-07 — Built IgnitionIntake.jsx (Zone 1 intake), IgnitionEstimate.jsx (Zone 3 service writer), CustomerApprovalPortal.jsx (in-person e-sign authorization), shop_estimate.py Railway estimate agent, supabase_job_lifecycle_migration.sql (13-table schema). All committed to main.
 
+## Handoff
+> This section is rewritten at the end of every session by whichever AI is finishing.
+> Read this first — it tells you exactly where to pick up.
+
+- **Next task:** Zone 2 — Tech Eval UI (`modules/IgnitionEval.jsx` or extend `IgnitionFlux.jsx`)
+- **What it writes:** `evaluations` row (status=submitted), `dtc_codes` rows, `eval_photos` rows, `labor_entries` rows; on submit sets `jobs.status='eval_done'`
+- **Entry point:** Tech opens a job from KOSK/FLUX, taps "Start Evaluation", lands in the eval form
+- **Key constraint:** The estimate agent (`shop_estimate.py` → `POST /api/estimate/build`) reads from `evaluations` + `dtc_codes` — structured DTC rows are what feed the AI, not free text. This is the critical missing link.
+- **Session ended by:** Claude — 2026-05-07
+
 **Collaboration workflow:**
 1. Generate feature specs or code snippets in Gemini web session
 2. Paste output into `gemini_staging_inbox.md` pending section
