@@ -26,7 +26,8 @@ import IgnitionAdmin from './modules/IgnitionAdmin';
 import IgnitionAudit from './modules/IgnitionAudit';
 import IgnitionIntake from './modules/IgnitionIntake';
 import IgnitionEstimate from './modules/IgnitionEstimate';
-import { Lock, LayoutDashboard, Truck, Activity, ShoppingCart, Search, Package, BarChart3, ShieldCheck, Users, Map, Store, ScanLine, QrCode, DollarSign, RefreshCw, UserPlus, ClipboardCheck, Cog, FileSearch, CheckCircle, ChevronRight, FilePlus, ClipboardList } from 'lucide-react';
+import IgnitionEval from './modules/IgnitionEval';
+import { Lock, LayoutDashboard, Truck, Activity, ShoppingCart, Search, Package, BarChart3, ShieldCheck, Users, Map, Store, ScanLine, QrCode, DollarSign, RefreshCw, UserPlus, ClipboardCheck, Cog, FileSearch, CheckCircle, ChevronRight, FilePlus, ClipboardList, Microscope } from 'lucide-react';
 
 /**
  * UI: Forgot PIN flow — staff enters 6-digit reset code from admin, sets new PIN
@@ -843,13 +844,17 @@ const CoreApp = () => {
   if (isKioskMode) {
     return (
       <div className="flex flex-col h-screen bg-black text-slate-200 overflow-hidden">
-         <IgnitionKosk 
-           activeJob={activeJob} 
+         <IgnitionKosk
+           activeJob={activeJob}
            onUpdateJob={(job) => {
              setActiveJob(job);
              DataBridge.save('active_job_context', job);
            }}
            onExitKiosk={() => setIsKioskMode(false)}
+           onStartEval={() => {
+             setIsKioskMode(false);
+             setActiveModule('EVAL');
+           }}
          />
       </div>
     );
@@ -994,6 +999,18 @@ const CoreApp = () => {
           </AccessGatekeeper>
         )}
 
+        {activeModule === 'EVAL' && (
+          <AccessGatekeeper requiredPermissions={['view_flux']}>
+            <IgnitionEval
+              job={activeJob}
+              onBack={() => setActiveModule('FLUX')}
+              onEvalSubmitted={() => {
+                setActiveModule('FLUX');
+              }}
+            />
+          </AccessGatekeeper>
+        )}
+
         {activeModule === 'OMNI' && (
           <AccessGatekeeper requiredPermissions={['view_omni']}>
             <IgnitionOmni 
@@ -1046,6 +1063,7 @@ const CoreApp = () => {
               {[
                 { id: 'INTAKE',    label: 'New RO',    icon: FilePlus,     color: 'text-emerald-400', bg: 'bg-slate-800' },
               { id: 'ESTIMATES', label: 'Estimates', icon: ClipboardList, color: 'text-sky-400',     bg: 'bg-slate-800' },
+              { id: 'EVAL',      label: 'Tech Eval', icon: Microscope,    color: 'text-blue-400',    bg: 'bg-slate-800' },
               { id: 'OMNI',      label: 'Command',   icon: BarChart3,     color: 'text-amber-400',   bg: 'bg-slate-800' },
                 { id: 'HUB', label: 'Dispatch', icon: Map, color: 'text-blue-500', bg: 'bg-slate-800' },
                 { id: 'FLUX', label: 'Workflow', icon: Truck, color: 'text-sky-400', bg: 'bg-slate-800' },

@@ -5,14 +5,14 @@
  */
 
 import React, { useState } from 'react';
-import { Clock, Barcode, ClipboardList, Mic, Play, Square, CheckCircle, Unlock, Activity, AlertOctagon } from 'lucide-react';
+import { Clock, Barcode, ClipboardList, Mic, Play, Square, CheckCircle, Unlock, Activity, AlertOctagon, Microscope } from 'lucide-react';
 import DataBridge from '../DataBridge';
 import { useIgnitionVoice } from '../hooks/useIgnitionVoice';
 import IgnitionHandover from './IgnitionHandover';
 import { usePowerSense } from '../hooks/usePowerSense';
 import SlideToComplete from './SlideToComplete';
 
-const IgnitionKosk = ({ activeJob, onUpdateJob, onExitKiosk }) => {
+const IgnitionKosk = ({ activeJob, onUpdateJob, onExitKiosk, onStartEval }) => {
   const [isClockedIn, setIsClockedIn] = useState(false);
   const isDotMandated = (() => {
     const val = DataBridge.load('is_dot_mandated');
@@ -146,6 +146,17 @@ const IgnitionKosk = ({ activeJob, onUpdateJob, onExitKiosk }) => {
           <Barcode size={32} className="text-blue-500" />
           <span className="text-lg font-black uppercase italic tracking-tighter text-white">Scan Part / Bin</span>
         </button>
+
+        {/* BEGIN EVALUATION */}
+        {isClockedIn && onStartEval && (
+          <button
+            onClick={onStartEval}
+            className="h-28 bg-slate-900 rounded-3xl border-2 border-blue-500/40 hover:border-blue-500 flex flex-col items-center justify-center gap-2 active:scale-95 transition-all"
+          >
+            <Microscope size={32} className="text-blue-400" />
+            <span className="text-lg font-black uppercase italic tracking-tighter text-white">Begin Eval</span>
+          </button>
+        )}
 
         {/* EXTERNAL PARTS ETA TRACKER */}
         <div className="bg-slate-900 border border-orange-500/30 p-4 rounded-3xl flex justify-between items-center relative overflow-hidden">
