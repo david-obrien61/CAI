@@ -43,7 +43,7 @@ Estimate agent generates PART line items
         ↓
 _source_parts() — for each PART item:
         ↓
-1. Check Supabase `tools` / inventory table for this part
+1. Check Supabase `inventory` table for this part (see Task 0 — must be created first)
    → In stock?  source = 'INVENTORY', use shop cost, no PO needed
    → Not in stock? → continue
         ↓
@@ -75,26 +75,69 @@ The vendor directory needs a priority ordering field so the agent knows which ve
 
 ---
 
+## Task 0 — Create `inventory` Table in Supabase (prerequisite)
+
+**IMPORTANT — verified 2026-05-07:** There is NO parts inventory table in the current schema.
+
+- `tools` table = shop equipment (wrenches, lifts, diagnostic gear). Fields: `name`, `serial`, `assigned_to`, `status`. **Not parts. Do not use.**
+- `IgnitionStok.jsx` runs off a hardcoded mock array in local state — never connected to Supabase.
+- `purchase_orders.parts` is a jsonb column on POs — that's order line items, not standing stock.
+
+**Before `_source_parts()` can work, create a new migration:**
+
+```sql
+-- supabase_inventory_migration.sql
+CREATE TABLE IF NOT EXISTS inventory (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  shop_id      uuid NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+  part_number  text,
+  name         text NOT NULL,
+  description  text,
+  qty          integer NOT NULL DEFAULT 0,
+  bin_location text,
+  unit_cost    numeric(10,2),
+  fits_codes   text[],        -- DTC/fault codes this part covers
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  updated_at   timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS inventory_shop_idx    ON inventory(shop_id);
+CREATE INDEX IF NOT EXISTS inventory_partnum_idx ON inventory(shop_id, part_number);
+
+ALTER TABLE inventory ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "pilot_all_inventory" ON inventory;
+CREATE POLICY "pilot_all_inventory" ON inventory FOR ALL USING (true) WITH CHECK (true);
+
+DROP TRIGGER IF EXISTS inventory_updated_at ON inventory;
+CREATE TRIGGER inventory_updated_at
+  BEFORE UPDATE ON inventory
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+```
+
+Then **migrate `IgnitionStok.jsx`** to read from and write to this table instead of its hardcoded mock array.
+
+---
+
 ## Task 2 — Build `_source_parts()` in `shop_estimate.py`
 
 This is a new function in `shop_estimate.py`, called after `_get_labor_hours()` returns its line items.
 
 **Function signature:**
 ```python
-def _source_parts(line_items: list, shop_id: str, job_id: str) -> list:
+def _source_parts(line_items: list, shop_id: str, job_id: str, markup_percent: float) -> list:
     """
     For each PART line item:
-    1. Check Supabase inventory for a match (by part_number or description keyword)
-    2. If found in stock: set source='INVENTORY', unit_cost from inventory, no PO flag
-    3. If not in stock: set source='VENDOR', supplier = highest-priority vendor from vendor_directory
-    4. Apply MarginEngine equivalent: unit_price = unit_cost * (1 + markup/100)
+    1. Check Supabase `inventory` table for a match (by part_number or name ilike)
+    2. If found and qty > 0: set source='INVENTORY', unit_cost from inventory row
+    3. If not found or qty = 0: set source='VENDOR', supplier = highest-priority vendor
+    4. unit_price already applied by margin engine step — do not double-apply here
     Returns enriched line_items list with source, supplier, unit_cost populated.
     """
 ```
 
 **Inventory check logic:**
-- Query Supabase `tools` table (or whichever inventory table is canonical — check schema)
-- Match on `part_number` exact, or fallback to `name` ilike search
+- Query Supabase `inventory` table (NOT `tools`)
+- Match on `part_number` exact first, then fallback to `name` ilike search
 - If `qty > 0` → in stock
 
 **Vendor selection logic:**
