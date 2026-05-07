@@ -11,14 +11,41 @@ import DataBridge from '../DataBridge';
 const IgnitionStok = ({ initialSearchTerm = '' }) => {
   const { isExpired } = DataBridge.checkTrialStatus('STOK');
   
-  // Mock Inventory Database
-  const [inventory, setInventory] = useState([
-    { id: 'P-101', name: 'NOx Sensor (Inlet)', partNum: '2871979-NX', qty: 3, bin: 'R2-B4', cost: 450, fits: ['3216'] },
-    { id: 'P-102', name: 'DPF Filter Kit', partNum: 'A0014903492', qty: 1, bin: 'OVERSIZE-1', cost: 1200, fits: ['3251'] },
-    { id: 'P-103', name: 'Fuel Relief Valve', partNum: 'RV-99', qty: 0, bin: 'R1-B12', cost: 180, fits: ['157'] }
-  ]);
-
+  const [inventory, setInventory] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState(initialSearchTerm);
+
+  useEffect(() => {
+    fetchInventory();
+  }, []);
+
+  const fetchInventory = async () => {
+    setLoading(true);
+    const currentUser = DataBridge.load('current_user');
+    const shopId = currentUser?.shop_id || DataBridge.load('shop_info')?.id;
+    if (!shopId) {
+      setLoading(false);
+      return;
+    }
+
+    // Dynamic import to avoid breaking if not present at top level
+    const { supabase } = await import('../supabase');
+    const { data, error } = await supabase.from('inventory').select('*').eq('shop_id', shopId);
+    
+    if (!error && data) {
+      const mapped = data.map(item => ({
+        id: item.id,
+        name: item.name,
+        partNum: item.part_number || 'N/A',
+        qty: item.qty || 0,
+        bin: item.bin_location || 'UNASSIGNED',
+        cost: item.unit_cost || 0,
+        fits: item.fits_codes || []
+      }));
+      setInventory(mapped);
+    }
+    setLoading(false);
+  };
 
   const filteredInventory = inventory.filter(item => 
     item.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -92,7 +119,10 @@ const IgnitionStok = ({ initialSearchTerm = '' }) => {
             )}
           </div>
         ))}
-        {filteredInventory.length === 0 && (
+        {loading && (
+          <div className="text-center p-10 text-slate-500 italic">Loading inventory...</div>
+        )}
+        {!loading && filteredInventory.length === 0 && (
           <div className="text-center p-10 text-slate-500 italic">
             No inventory found matching "{searchTerm}".
           </div>

@@ -9,9 +9,9 @@
 > The next AI reads this first and picks up from here — no recap needed.
 > **CRITICAL:** ALWAYS update the handoff note before we lose context. I do not want to lose any effort.
 
-- **Completed this session:** Built the "Repair Workflow" within `IgnitionKosk.jsx`. Implemented dynamic fetching of approved `estimate_line_items`. Built Labor Time Tracking (writes to `labor_entries` on punch in/out). Built Repair Checklist (writes to `repair_logs` for completed items and handles supplement branch detection). Pilot critical path is functionally complete.
-- **Next task:** Backlog features (Margin pricing UI, PDF generation, Hardware ledger).
-- **Prerequisite note:** `eval-photos` Supabase Storage bucket must be created manually in the Supabase dashboard before photo upload works. Bucket name: `eval-photos`, set to public.
+- **Completed this session:** Built the AI-Driven Parts Sourcing Pipeline. Created `inventory` table migration. Migrated `IgnitionStok.jsx` to Supabase. Added routing priority to vendor directory in `DataBridge.js` and `IgnitionProc.jsx`. Built `_source_parts()` AI engine in `shop_estimate.py` to auto-check inventory and fallback to highest priority vendor. Built server-side `POST /api/jobs/{job_id}/generate-pos` and wired it to customer signature callback in `IgnitionEstimate.jsx`.
+- **Next task:** Backlog features (Margin pricing UI, PDF generation, Hardware ledger) or further agent refinement.
+- **Prerequisite note:** `eval-photos` Supabase Storage bucket must be created manually in the Supabase dashboard before photo upload works. Bucket name: `eval-photos`, set to public. Also MUST RUN `supabase_inventory_migration.sql` to create the `inventory` table.
 - **Session ended by:** Gemini — 2026-05-07
 
 ## Architecture

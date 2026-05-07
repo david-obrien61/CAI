@@ -936,9 +936,9 @@ const DataBridge = {
    */
   getVendors: () => {
     return DataBridge.load('vendor_directory') || [
-      { id: 'V-001', name: 'AutoZone Commercial', address: '123 Main St, Leander, TX 78641', phone: '512-555-0101', weblink: 'https://autozonepro.com', accountNum: 'AZ-8832-TX' },
-      { id: 'V-002', name: 'NAPA Auto Parts', address: '456 Gear Blvd, Cedar Park, TX 78613', phone: '512-555-0202', weblink: 'https://napaonline.com', accountNum: 'NA-10029' },
-      { id: 'V-003', name: 'FleetPride', address: '789 Diesel Way, North Austin, TX 78728', phone: '512-555-0303', weblink: 'https://fleetpride.com', accountNum: 'FP-TX-554' }
+      { id: 'V-001', name: 'AutoZone Commercial', address: '123 Main St, Leander, TX 78641', phone: '512-555-0101', weblink: 'https://autozonepro.com', accountNum: 'AZ-8832-TX', priority: 1 },
+      { id: 'V-002', name: 'NAPA Auto Parts', address: '456 Gear Blvd, Cedar Park, TX 78613', phone: '512-555-0202', weblink: 'https://napaonline.com', accountNum: 'NA-10029', priority: 2 },
+      { id: 'V-003', name: 'FleetPride', address: '789 Diesel Way, North Austin, TX 78728', phone: '512-555-0303', weblink: 'https://fleetpride.com', accountNum: 'FP-TX-554', priority: 3 }
     ];
   },
   

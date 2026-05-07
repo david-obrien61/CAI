@@ -13,15 +13,15 @@ const IgnitionProc = () => {
   const [vendors, setVendors] = useState(() => DataBridge.getVendors());
   
   // Onboarding Form State
-  const [formData, setFormData] = useState({ name: '', address: '', phone: '', weblink: '', accountNum: '' });
+  const [formData, setFormData] = useState({ name: '', address: '', phone: '', weblink: '', accountNum: '', priority: '' });
 
   const handleOnboardVendor = () => {
     if (!formData.name || !formData.accountNum) return alert("Vendor Name and Account Number are required.");
-    const newVendor = { ...formData, id: `V-${Math.floor(Math.random() * 10000)}` };
+    const newVendor = { ...formData, id: `V-${Math.floor(Math.random() * 10000)}`, priority: parseInt(formData.priority) || 99 };
     DataBridge.addVendor(newVendor);
     setVendors(DataBridge.getVendors());
     setViewMode('DIRECTORY');
-    setFormData({ name: '', address: '', phone: '', weblink: '', accountNum: '' });
+    setFormData({ name: '', address: '', phone: '', weblink: '', accountNum: '', priority: '' });
   };
 
   return (
@@ -48,7 +48,10 @@ const IgnitionProc = () => {
               {vendors.map(v => (
                 <div key={v.id} className="bg-slate-900 p-6 rounded-[2rem] border border-slate-800 shadow-xl group hover:border-orange-500/50 transition-colors">
                    <h4 className="text-lg font-black text-white uppercase tracking-tighter mb-1">{v.name}</h4>
-                   <p className="text-[10px] text-orange-500 font-bold uppercase tracking-widest mb-4 flex items-center gap-1"><Hash size={12}/> ACCT: {v.accountNum}</p>
+                   <div className="flex gap-4 mb-4">
+                     <p className="text-[10px] text-orange-500 font-bold uppercase tracking-widest flex items-center gap-1"><Hash size={12}/> ACCT: {v.accountNum}</p>
+                     <p className="text-[10px] text-blue-500 font-bold uppercase tracking-widest flex items-center gap-1">PRIORITY: {v.priority || 99}</p>
+                   </div>
                    
                    <div className="space-y-3 text-xs font-medium text-slate-400">
                      <p className="flex items-start gap-3"><MapPin size={14} className="text-slate-500 shrink-0 mt-0.5" /> {v.address}</p>
@@ -84,9 +87,13 @@ const IgnitionProc = () => {
                     <input type="text" value={formData.accountNum} onChange={e => setFormData({...formData, accountNum: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-4 text-white font-bold outline-none focus:border-orange-500 transition-colors" placeholder="e.g. ACCT-1002" />
                   </div>
                   <div>
-                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2 block">Support Phone</label>
-                    <input type="tel" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-4 text-white font-bold outline-none focus:border-orange-500 transition-colors" placeholder="512-555-0100" />
+                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2 block">Routing Priority (1=Highest)</label>
+                    <input type="number" value={formData.priority} onChange={e => setFormData({...formData, priority: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-4 text-white font-bold outline-none focus:border-orange-500 transition-colors" placeholder="e.g. 1" />
                   </div>
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2 block">Support Phone</label>
+                  <input type="tel" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-4 text-white font-bold outline-none focus:border-orange-500 transition-colors" placeholder="512-555-0100" />
                 </div>
                 <div>
                   <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2 block">Physical Address</label>

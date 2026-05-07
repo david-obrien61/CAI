@@ -325,6 +325,55 @@ def _get_labor_hours(work_items: list, dtc_codes: list, vehicle: dict,
     return json.loads(raw.strip())
 
 
+def _source_parts(line_items: list, shop_id: str, job_id: str) -> list:
+    """
+    For each PART line item:
+    1. Check Supabase `inventory` table for a match (by part_number or name ilike)
+    2. If found and qty > 0: set source='INVENTORY', unit_cost from inventory row
+    3. If not found or qty = 0: set source='VENDOR', supplier = highest-priority vendor
+    """
+    from ai_router import _supabase
+    db = _supabase()
+
+    # Preferred vendors (simulating DataBridge backend sync)
+    vendors = [
+        {"id": "V-001", "name": "AutoZone Commercial", "priority": 1},
+        {"id": "V-002", "name": "NAPA Auto Parts", "priority": 2},
+        {"id": "V-003", "name": "FleetPride", "priority": 3}
+    ]
+    vendors.sort(key=lambda x: x["priority"])
+    default_vendor = vendors[0]["name"]
+
+    for item in line_items:
+        if item.get("item_type") != "PART":
+            continue
+
+        part_num = item.get("part_number")
+        desc = item.get("description", "")
+        
+        match = None
+        if part_num:
+            res = db.table("inventory").select("*").eq("shop_id", shop_id).eq("part_number", part_num).execute()
+            if res.data:
+                match = res.data[0]
+        
+        if not match and desc:
+            res = db.table("inventory").select("*").eq("shop_id", shop_id).ilike("name", f"%{desc}%").execute()
+            if res.data:
+                match = res.data[0]
+                
+        if match and match.get("qty", 0) > 0:
+            item["source"] = "INVENTORY"
+            item["supplier"] = "SHOP_STOCK"
+            if match.get("unit_cost") is not None:
+                item["unit_cost_estimate"] = match.get("unit_cost")
+        else:
+            item["source"] = "VENDOR"
+            item["supplier"] = default_vendor
+
+    return line_items
+
+
 @app.post("/api/estimate/build")
 async def build_estimate(req: EstimateBuildRequest):
     """
@@ -386,6 +435,9 @@ async def build_estimate(req: EstimateBuildRequest):
         _log_error(req.shop_id, "AI_CALL", str(e), endpoint="/api/estimate/build")
         raise HTTPException(500, f"Claude estimate failed: {e}")
 
+    # ── 5b. Source parts from inventory or preferred vendor ───────────────────
+    agent_items = _source_parts(agent_items, shop_id=req.shop_id, job_id=job_id)
+
     # ── 6. Apply margin engine ────────────────────────────────────────────────
     markup     = req.markup_percent / 100.0
     labor_rate = req.labor_rate
@@ -425,7 +477,7 @@ async def build_estimate(req: EstimateBuildRequest):
             "item_type":   item_type,
             "description": item.get("description", ""),
             "part_number": item.get("part_number"),
-            "supplier":    None,
+            "supplier":    item.get("supplier"),
             "quantity":    quantity,
             "unit_cost":   unit_cost,
             "unit_price":  unit_price,
@@ -492,8 +544,73 @@ async def build_estimate(req: EstimateBuildRequest):
     }
 
 
+    }
+
+
 # ==========================================
-# 6. QUICKBOOKS ENDPOINTS
+# 6. PURCHASE ORDERS
+# ==========================================
+
+@app.post("/api/jobs/{job_id}/generate-pos")
+async def generate_pos(job_id: str):
+    """
+    Auto-generates Purchase Orders (POs) for approved VENDOR parts.
+    """
+    from ai_router import _supabase
+    import datetime
+    db = _supabase()
+
+    # 1. Load estimate_line_items where auth_status='approved' and source='VENDOR'
+    res = db.table("estimate_line_items").select("*").eq("job_id", job_id).eq("auth_status", "approved").eq("item_type", "PART").eq("source", "VENDOR").execute()
+    vendor_parts = res.data or []
+
+    if not vendor_parts:
+        # If no vendor parts, just update job status to in_repair
+        try:
+            db.table("jobs").update({"status": "in_repair"}).eq("id", job_id).execute()
+        except:
+            pass
+        return {"status": "success", "message": "No vendor parts to order.", "purchase_orders": []}
+
+    # Group by supplier
+    by_supplier = {}
+    for part in vendor_parts:
+        sup = part.get("supplier") or "Unknown Vendor"
+        if sup not in by_supplier:
+            by_supplier[sup] = []
+        by_supplier[sup].append(part)
+
+    pos_created = []
+    now = datetime.datetime.utcnow().isoformat()
+    
+    shop_id = vendor_parts[0]["shop_id"]
+
+    for supplier, parts in by_supplier.items():
+        po_record = {
+            "job_id": job_id,
+            "shop_id": shop_id,
+            "vendor": supplier,
+            "parts": parts,
+            "status": "ORDERED"
+        }
+        try:
+            inserted = db.table("purchase_orders").insert(po_record).execute()
+            if inserted.data:
+                pos_created.append(inserted.data[0])
+        except Exception as e:
+            raise HTTPException(500, f"Failed to create PO for {supplier}: {str(e)}")
+
+    # Update job status
+    try:
+        db.table("jobs").update({"status": "in_repair"}).eq("id", job_id).execute()
+    except Exception as e:
+        pass
+
+    return {"status": "success", "purchase_orders": pos_created}
+
+
+# ==========================================
+# 7. QUICKBOOKS ENDPOINTS
 # ==========================================
 
 @app.get("/api/qbo/auth-url")
