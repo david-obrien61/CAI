@@ -8,10 +8,10 @@
 > This section is rewritten at the end of every session by whichever AI is finishing.
 > The next AI reads this first and picks up from here — no recap needed.
 
-- **Next task:** Zone 2 — Tech Eval UI (`modules/IgnitionFlux.jsx` or a new `IgnitionEval.jsx`)
-- **What it writes:** `evaluations` row (status=submitted), `dtc_codes` rows, `eval_photos` rows, `labor_entries` rows; on submit sets `jobs.status='eval_done'`
-- **Entry point:** Tech opens a job from KOSK/FLUX, taps "Start Evaluation", lands in the eval form
-- **Key constraint:** The estimate agent (`shop_estimate.py`) reads from `evaluations` + `dtc_codes` — structured DTC rows are what feed the AI, not free text
+- **Completed this session:** Zone 2 — `modules/IgnitionEval.jsx` built and wired. KOSK gets "Begin Eval" button (visible when clocked in). Dashboard gets "Tech Eval" tile. CoreApp has `EVAL` route. All committed.
+- **Next task:** Parts sourcing trigger — after `jobs.status` flips to `authorized`, split approved `estimate_line_items` into in-stock (pull from `IgnitionStok` inventory) vs. out-of-stock (create `purchase_orders` rows). Needs a new backend endpoint or a frontend trigger in `CustomerApprovalPortal.jsx` → `onAuthorized` callback.
+- **Prerequisite note:** `eval-photos` Supabase Storage bucket must be created manually in the Supabase dashboard before photo upload works. Bucket name: `eval-photos`, set to public.
+- **Also pending:** Migrate `IgnitionFlux`, `IgnitionKosk`, `IgnitionOmni` from localStorage to Supabase queries.
 - **Session ended by:** Claude — 2026-05-07
 
 ## Architecture
@@ -62,7 +62,7 @@ intake → queued → in_eval → eval_done → estimating → pending_auth
 - All other modules (Cipher, STOK, PROC, PORT, HUB, Compliance, CRM, VIN, Voice) — exist, pre-migration state
 
 ## Active Tasks
-- [ ] Zone 2 — Tech eval UI: structured DTC entry (→ dtc_codes table), photo upload (→ eval_photos + Supabase Storage), labor clock-in/out (→ labor_entries), submit eval sets evaluations.status='submitted' + jobs.status='eval_done'
+- [x] Zone 2 — Tech eval UI: `IgnitionEval.jsx` — DTC codes, photos, work items, labor clock, submit → eval_done
 - [ ] Parts sourcing trigger: after authorization split approved line items → in-stock pull vs. PO creation for out-of-stock
 - [ ] Invoice + closeout: generate invoice from authorized estimate_line_items → invoice_line_items snapshot → payment collection → jobs.status='closed'
 - [ ] Migrate FLUX, KOSK, OMNI to read job state from Supabase instead of localStorage
