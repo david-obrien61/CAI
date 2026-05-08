@@ -186,7 +186,7 @@ Everything in Professional, plus:
 | Procurement | ✓ | ✓ | Built |
 | OMNI Analytics | ✓ | — | Built |
 | HUB Dispatch | ✓ | — | Built (mock map) |
-| Tools / PMI | ✓ | ✓ | Needs redesign |
+| Tools / PMI | ✓ | ✓ | Built (web live, migration pending) |
 | Scribe AI | ✓ | ✓ | Stub (needs wiring) |
 | CRM | ✓ | — | Built |
 | Fleet Compliance | ✓ | ✓ | Built |
