@@ -183,6 +183,17 @@ const DataBridge = {
     }
   },
 
+  getShopName: () => {
+    if (memoryStore._shopName) return memoryStore._shopName;
+    if (isWeb) return localStorage.getItem('IGNITION_SHOP_NAME');
+    return null;
+  },
+
+  setShopName: (name) => {
+    memoryStore._shopName = name;
+    if (isWeb) localStorage.setItem('IGNITION_SHOP_NAME', name);
+  },
+
   /**
    * CLOUD SYNC: Pulls jobs from Supabase, falls back to FastAPI, then local cache.
    */

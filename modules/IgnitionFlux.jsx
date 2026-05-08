@@ -1,232 +1,211 @@
-/**
- * MODULE: Ignition Flux
- * VERSION: v1.1.7
- * UPDATES: 
- * - Integrated Hoisted State (activeJob, onUpdateJob).
- * - Added Foreman PIN Lock for 'RED' health assets.
- * - Added Automated Ingestion Hooks (VIN Sniper/Telematics).
- */
-
-import React, { useState } from 'react';
-import { 
-  Settings, Wrench, ClipboardCheck, AlertCircle, 
-  ShieldCheck, XCircle, Lock, Camera, Zap, Mic, Users 
-} from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { RefreshCw, ChevronRight, Clock, Wrench, AlertCircle } from 'lucide-react';
+import { supabase } from '../supabase';
 import DataBridge from '../DataBridge';
 
-const JobAssignment = ({ activeJob, onUpdateJob }) => {
-  const crewSize = activeJob?.assigned_crew_size || 1;
+const STATUS_META = {
+  intake:       { label: 'NEW',          color: 'text-amber-400',   border: 'border-amber-500/30',   bg: 'bg-amber-500/10'   },
+  queued:       { label: 'QUEUED',       color: 'text-amber-400',   border: 'border-amber-500/30',   bg: 'bg-amber-500/10'   },
+  in_eval:      { label: 'IN EVAL',      color: 'text-blue-400',    border: 'border-blue-500/30',    bg: 'bg-blue-500/10'    },
+  eval_done:    { label: 'EVAL DONE',    color: 'text-blue-300',    border: 'border-blue-500/30',    bg: 'bg-blue-500/10'    },
+  estimating:   { label: 'ESTIMATING',  color: 'text-purple-400',  border: 'border-purple-500/30',  bg: 'bg-purple-500/10'  },
+  pending_auth: { label: 'PENDING AUTH', color: 'text-orange-400',  border: 'border-orange-500/30',  bg: 'bg-orange-500/10'  },
+  authorized:   { label: 'AUTHORIZED',  color: 'text-emerald-400', border: 'border-emerald-500/30', bg: 'bg-emerald-500/10' },
+  in_repair:    { label: 'IN REPAIR',   color: 'text-sky-400',     border: 'border-sky-500/30',     bg: 'bg-sky-500/10'     },
+  supplement:   { label: 'SUPPLEMENT',  color: 'text-yellow-400',  border: 'border-yellow-500/30',  bg: 'bg-yellow-500/10'  },
+  repair_done:  { label: 'QC READY',    color: 'text-teal-400',    border: 'border-teal-500/30',    bg: 'bg-teal-500/10'    },
+  invoiced:     { label: 'INVOICED',    color: 'text-orange-400',  border: 'border-orange-500/30',  bg: 'bg-orange-500/10'  },
+  closed:       { label: 'CLOSED',      color: 'text-slate-400',   border: 'border-slate-600',      bg: 'bg-slate-800/50'   },
+};
+
+const FILTERS = ['ALL', 'OPEN', 'IN PROGRESS', 'AWAITING AUTH', 'CLOSED'];
+
+const FILTER_STATUSES = {
+  'ALL':          null,
+  'OPEN':         ['intake', 'queued'],
+  'IN PROGRESS':  ['in_eval', 'eval_done', 'estimating', 'authorized', 'in_repair', 'supplement', 'repair_done'],
+  'AWAITING AUTH':['pending_auth'],
+  'CLOSED':       ['invoiced', 'closed'],
+};
+
+const elapsed = (ts) => {
+  const ms = Date.now() - new Date(ts).getTime();
+  const h  = Math.floor(ms / 3600000);
+  const d  = Math.floor(h / 24);
+  if (d > 0) return `${d}d ago`;
+  if (h > 0) return `${h}h ago`;
+  return 'Just now';
+};
+
+const statusMeta = (status) =>
+  STATUS_META[(status || '').toLowerCase()] || {
+    label: (status || 'UNKNOWN').toUpperCase(),
+    color: 'text-slate-400',
+    border: 'border-slate-700',
+    bg: 'bg-slate-800',
+  };
+
+const IgnitionFlux = ({ onNavigate, onSelectJob, onEnterKiosk }) => {
+  const [jobs, setJobs]       = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter]   = useState('ALL');
+  const [error, setError]     = useState('');
+
+  const fetchJobs = useCallback(async () => {
+    const shopId = DataBridge.getShopId();
+    if (!shopId) { setLoading(false); return; }
+    setLoading(true);
+    setError('');
+    const { data, error: dbErr } = await supabase
+      .from('jobs')
+      .select('id, wo_number, status, customer, vehicle, customer_id, vehicle_id, created_at, updated_at')
+      .eq('shop_id', shopId)
+      .order('updated_at', { ascending: false });
+    setLoading(false);
+    if (dbErr) { setError('Failed to load repair orders.'); return; }
+    setJobs(data || []);
+  }, []);
+
+  useEffect(() => { fetchJobs(); }, [fetchJobs]);
+
+  const navigateToJob = (job) => {
+    onSelectJob(job);
+    const s = (job.status || '').toLowerCase();
+    if (['intake', 'queued', 'in_eval', 'eval_done'].includes(s))      onNavigate('EVAL');
+    else if (['estimating', 'pending_auth'].includes(s))                onNavigate('ESTIMATES');
+    else if (['authorized', 'in_repair', 'supplement', 'repair_done'].includes(s)) onEnterKiosk();
+    else if (s === 'invoiced')                                          onNavigate('INVOICE');
+    else                                                                onNavigate('EVAL');
+  };
+
+  const filterStatuses = FILTER_STATUSES[filter];
+  const visible = filterStatuses
+    ? jobs.filter(j => filterStatuses.includes((j.status || '').toLowerCase()))
+    : jobs;
+
+  const counts = {
+    'OPEN':          jobs.filter(j => ['intake','queued'].includes((j.status||'').toLowerCase())).length,
+    'IN PROGRESS':   jobs.filter(j => ['in_eval','eval_done','estimating','authorized','in_repair','supplement','repair_done'].includes((j.status||'').toLowerCase())).length,
+    'AWAITING AUTH': jobs.filter(j => (j.status||'').toLowerCase() === 'pending_auth').length,
+    'CLOSED':        jobs.filter(j => ['invoiced','closed'].includes((j.status||'').toLowerCase())).length,
+  };
 
   return (
-    <div className="bg-slate-900 p-5 rounded-2xl border border-slate-700 mb-8 shadow-xl">
-      <h3 className="text-xs font-black text-slate-500 uppercase flex items-center gap-2 mb-4 tracking-widest">
-          <Users size={14} className="text-emerald-500" /> Work Order Manpower Setup
-      </h3>
-      
-      <div className="flex gap-4 mb-4">
-        {[1, 2, 'ALL'].map(size => (
-          <button 
-            key={size}
-            onClick={() => onUpdateJob({ ...activeJob, assigned_crew_size: size })}
-            className={`flex-1 py-4 rounded-xl border-2 font-black transition-all text-xs uppercase tracking-widest shadow-lg ${
-              crewSize === size ? 'bg-blue-600 border-blue-400 text-white shadow-blue-900/30' : 'bg-slate-800 border-slate-700 text-slate-500 hover:border-slate-500 hover:text-white'
-            }`}
+    <div className="p-6 bg-slate-950 text-slate-200 min-h-screen">
+      <header className="flex justify-between items-center mb-6 border-b border-slate-800 pb-4">
+        <div>
+          <h2 className="text-2xl font-black italic tracking-tighter text-white uppercase">Ignition Flux</h2>
+          <p className="text-[10px] font-mono text-blue-500 uppercase tracking-widest">
+            {loading ? 'Loading...' : `${jobs.length} Repair Order${jobs.length !== 1 ? 's' : ''}`}
+          </p>
+        </div>
+        <button
+          onClick={fetchJobs}
+          className="bg-slate-800 p-2 rounded-lg border border-slate-700 hover:bg-slate-700 active:scale-95 transition-all"
+        >
+          <RefreshCw size={16} className={`text-blue-500 ${loading ? 'animate-spin' : ''}`} />
+        </button>
+      </header>
+
+      {/* SUMMARY TILES */}
+      <div className="grid grid-cols-4 gap-3 mb-6">
+        {(['OPEN', 'IN PROGRESS', 'AWAITING AUTH', 'CLOSED']).map(k => (
+          <button
+            key={k}
+            onClick={() => setFilter(filter === k ? 'ALL' : k)}
+            className={`bg-slate-900 border rounded-xl p-3 text-center transition-all active:scale-95 ${filter === k ? 'border-blue-500/60' : 'border-slate-800 hover:border-slate-600'}`}
           >
-            {size === 'ALL' ? 'ALL HANDS' : `${size} TECHS`}
+            <p className="text-xl font-black text-white">{counts[k]}</p>
+            <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest leading-tight mt-0.5">{k}</p>
           </button>
         ))}
       </div>
 
-      <p className="text-[9px] text-slate-500 uppercase font-black tracking-widest text-center mt-4">
-        * KOSK WILL ENFORCE THIS CAP DURING TECHNICIAN LOG-INS.
-      </p>
-    </div>
-  );
-};
+      {/* FILTER TABS */}
+      <div className="flex gap-2 mb-5 overflow-x-auto pb-1">
+        {FILTERS.map(f => (
+          <button
+            key={f}
+            onClick={() => setFilter(f)}
+            className={`flex-shrink-0 px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest border transition-all ${
+              filter === f
+                ? 'bg-blue-600 border-blue-500 text-white'
+                : 'bg-slate-900 border-slate-800 text-slate-500 hover:border-slate-600 hover:text-white'
+            }`}
+          >
+            {f}
+          </button>
+        ))}
+      </div>
 
-const IgnitionFlux = ({ activeJob, onUpdateJob }) => {
-  const [pinInput, setPinInput] = useState('');
-  const [isPinVisible, setIsPinVisible] = useState(false);
-
-  // 1. Logic Hook: Identify critical failures requiring Foreman Override
-  const hasCriticalFailure = activeJob.inventory.specialized.some(item => item.health === 'RED');
-
-  const isDotMandated = (() => {
-    const val = DataBridge.load('is_dot_mandated');
-    return val === null ? true : val;
-  })();
-
-  const handleAuthorization = () => {
-    if (isDotMandated) {
-      alert("DOT COMPLIANCE GATE ACTIVE: A digital FHMSA inspection form must be completed prior to asset release.");
-      return;
-    }
-    // In a production environment, validate pinInput against a secure hash
-    const updatedJob = { 
-      ...activeJob, 
-      status: 'IN_TRANSIT', 
-      authorizedBy: hasCriticalFailure ? 'Foreman Override' : 'System Auto-Approve',
-      dispatchedAt: new Date().toISOString()
-    };
-    
-    onUpdateJob(updatedJob);
-    setIsPinVisible(false);
-
-    // Auto-record Margin Leakage entry on departure
-    const existingTx = DataBridge.load('transaction_history') || [];
-    existingTx.push({
-      customer: activeJob.unit || 'Walk-In Fleet',
-      tier: hasCriticalFailure ? 'FF' : 'STANDARD',
-      standardPrice: 450,
-      actualPrice: hasCriticalFailure ? 200 : 450 // Favor given if out of service!
-    });
-    DataBridge.save('transaction_history', existingTx);
-    alert('Departure Authorized! Submitting telemetry and logging Leakage Data to OMNI.');
-  };
-
-  const getHealthColor = (status) => {
-    if (status === 'GREEN') return 'text-emerald-400';
-    if (status === 'YELLOW') return 'text-orange-400';
-    return 'text-red-500';
-  };
-
-  return (
-    <div className="p-6 bg-slate-900 text-slate-200 min-h-screen">
-      <header className="flex justify-between items-center mb-8 border-b border-slate-800 pb-4">
-        <div>
-          <h2 className="text-2xl font-black italic tracking-tighter text-white">IGNITION FLUX</h2>
-          <p className="text-[10px] font-mono text-blue-500 uppercase tracking-widest">
-            Unit Context: {activeJob.unit} // Status: {activeJob.status}
-          </p>
-        </div>
-        <div className="flex gap-2">
-           <button className="bg-slate-800 p-2 rounded-lg border border-slate-700 hover:bg-slate-700">
-             <Camera size={18} className="text-slate-400" />
-           </button>
-           <button className="bg-slate-800 p-2 rounded-lg border border-slate-700 hover:bg-slate-700">
-             <Zap size={18} className="text-blue-500" />
-           </button>
-        </div>
-      </header>
-
-      {!isDotMandated && (
-        <div className="bg-red-600 font-black text-white text-center py-2 px-4 rounded-xl uppercase tracking-widest text-xs animate-pulse mb-6 shadow-[0_0_20px_rgba(220,38,38,0.5)]">
-            SAFETY GATE DISABLED BY OWNER
+      {error && (
+        <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/30 rounded-xl p-4 mb-5">
+          <AlertCircle size={14} className="text-red-500 flex-shrink-0" />
+          <p className="text-red-400 text-xs font-bold">{error}</p>
         </div>
       )}
 
-      {/* TIERED LOADOUT & PMI HEALTH */}
-      <section className="grid md:grid-cols-2 gap-6 mb-8">
-        {/* Specialized Gear & Asset Health */}
-        <div className="bg-slate-800 p-5 rounded-2xl border border-slate-700 shadow-xl">
-          <h3 className="text-xs font-black uppercase text-slate-500 mb-4 flex items-center gap-2 tracking-widest">
-            <Wrench size={14} /> Specialized Gear & PMI
-          </h3>
-          <div className="space-y-3">
-            {activeJob.inventory.specialized.length > 0 ? (
-              activeJob.inventory.specialized.map(item => (
-                <div key={item.id} className="flex justify-between items-center bg-slate-900/50 p-3 rounded-xl border border-slate-800">
-                  <span className="text-sm font-bold">{item.name}</span>
-                  <div className="flex items-center gap-2">
-                    <span className={`text-[10px] font-black ${getHealthColor(item.health)}`}>
-                      {item.health === 'RED' ? 'OUT_OF_SERVICE' : item.health}
-                    </span>
-                    {item.health === 'RED' ? <XCircle size={14} className="text-red-500" /> : <ShieldCheck size={14} className="text-blue-500" />}
-                  </div>
-                </div>
-              ))
-            ) : (
-              <p className="text-xs text-slate-500 italic">No specialized gear assigned. Use Ingestion to add assets.</p>
-            )}
-          </div>
+      {loading && (
+        <div className="text-center py-16 text-slate-500 text-[10px] uppercase tracking-widest font-black animate-pulse">
+          Loading repair orders...
         </div>
+      )}
 
-        {/* Base Loadout & Consumables */}
-        <div className="bg-slate-800 p-5 rounded-2xl border border-slate-700">
-          <h3 className="text-xs font-black uppercase text-slate-500 mb-4 flex items-center gap-2 tracking-widest">
-            <ClipboardCheck size={14} /> Base Loadout Verification
-          </h3>
-          <div className="space-y-4">
-             <div className="flex justify-between items-center bg-slate-900/50 p-3 rounded-xl border border-slate-800">
-               <span className="text-xs text-slate-300 italic">Common Parts & Hand Tools</span>
-               <span className="text-[10px] bg-emerald-500/10 text-emerald-500 px-2 py-1 rounded font-black border border-emerald-500/20">VERIFIED</span>
-             </div>
-             <p className="text-[10px] text-slate-500 leading-relaxed uppercase font-mono">
-               Note: All mobile units are equipped with standard air compressors and 1/2" impacts as baseline inventory.
-             </p>
-          </div>
+      {!loading && visible.length === 0 && (
+        <div className="text-center py-16 border border-dashed border-slate-800 rounded-2xl">
+          <Wrench size={32} className="text-slate-700 mx-auto mb-3" />
+          <p className="text-slate-500 text-[10px] uppercase tracking-widest font-black">
+            No repair orders in this category
+          </p>
         </div>
-      </section>
+      )}
 
-      {/* FIELD INTELLIGENCE */}
-      <section className="bg-slate-800 p-5 rounded-2xl border border-slate-700 mb-8 shadow-xl">
-        <h3 className="text-xs font-black uppercase text-slate-500 mb-4 flex items-center gap-2 tracking-widest">
-           <Mic size={14} className="text-blue-500" /> Technician Field Intelligence Sync
-        </h3>
-        <div className="space-y-2">
-          {activeJob.notes && activeJob.notes.length > 0 ? (
-            activeJob.notes.map((n, i) => (
-               <div key={i} className="bg-slate-900/50 p-3 rounded-xl border border-slate-700 text-emerald-400 font-mono text-xs shadow-inner">
-                 {n}
-               </div>
-            ))
-          ) : (
-             <p className="text-xs text-slate-500 italic">No field notes synced for this unit.</p>
-          )}
-        </div>
-      </section>
+      {!loading && visible.length > 0 && (
+        <div className="space-y-3">
+          {visible.map(job => {
+            const meta     = statusMeta(job.status);
+            const cust     = job.customer;
+            const custName = cust?.name
+              || (cust?.first_name ? `${cust.first_name} ${cust.last_name || ''}`.trim() : null)
+              || 'Unknown Customer';
+            const veh      = job.vehicle;
+            const vehLabel = veh
+              ? `${veh.year || ''} ${veh.make || ''} ${veh.model || ''}`.trim() || 'Unknown Vehicle'
+              : 'Unknown Vehicle';
+            const woLabel  = job.wo_number || job.id?.slice(0, 8).toUpperCase();
 
-      {/* JOB ASSIGNMENT SETUP */}
-      <JobAssignment activeJob={activeJob} onUpdateJob={onUpdateJob} />
-
-      {/* DISPATCH CONTROL & FOREMAN OVERRIDE */}
-      <div className="mt-auto">
-        {hasCriticalFailure ? (
-          <div className="bg-red-500/10 border border-red-500/30 p-6 rounded-2xl">
-            <div className="flex items-start gap-4 mb-6">
-              <Lock size={24} className="text-red-500 mt-1" />
-              <div>
-                <p className="text-md font-black text-white uppercase italic tracking-tighter">Safety Dispatch Lock</p>
-                <p className="text-xs text-slate-400">
-                  Critical equipment is flagged as <span className="text-red-500 font-bold underline">Out of Service</span>.
-                  A Foreman PIN is required to authorize this mobile unit for dispatch.
-                </p>
-              </div>
-            </div>
-            
-            {!isPinVisible ? (
-              <button 
-                onClick={() => setIsPinVisible(true)}
-                className="w-full bg-red-600 text-white font-black py-4 rounded-xl hover:bg-red-500 shadow-lg shadow-red-900/20 transition-all text-xs uppercase tracking-widest"
+            return (
+              <button
+                key={job.id}
+                onClick={() => navigateToJob(job)}
+                className="w-full bg-slate-900 border border-slate-800 rounded-2xl p-4 flex items-center gap-4 text-left hover:border-slate-600 active:scale-[0.99] transition-all"
               >
-                Request Foreman Override
+                <div className={`flex-shrink-0 px-2 py-1 rounded-lg border ${meta.bg} ${meta.border}`}>
+                  <span className={`text-[8px] font-black uppercase tracking-widest ${meta.color}`}>
+                    {meta.label}
+                  </span>
+                </div>
+
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-black text-white uppercase tracking-tighter truncate">{custName}</p>
+                  <p className="text-[10px] text-slate-500 uppercase truncate">{vehLabel}</p>
+                  <p className="text-[9px] font-mono text-slate-600 mt-0.5">WO# {woLabel}</p>
+                </div>
+
+                <div className="flex-shrink-0 flex items-center gap-3">
+                  <div className="flex items-center gap-1 text-slate-600">
+                    <Clock size={10} />
+                    <span className="text-[9px] font-black uppercase">
+                      {elapsed(job.updated_at || job.created_at)}
+                    </span>
+                  </div>
+                  <ChevronRight size={14} className="text-slate-600" />
+                </div>
               </button>
-            ) : (
-              <div className="space-y-3">
-                <input 
-                  type="password" 
-                  placeholder="ENTER 4-DIGIT PIN" 
-                  className="w-full bg-slate-950 border border-slate-700 p-4 rounded-xl text-center tracking-[1em] text-white"
-                  onChange={(e) => setPinInput(e.target.value)}
-                />
-                <button 
-                  onClick={handleAuthorization}
-                  className="w-full bg-orange-600 text-white font-black py-4 rounded-xl shadow-lg shadow-orange-900/20 uppercase tracking-widest text-xs hover:bg-orange-500 transition-colors"
-                >
-                  Confirm Override & Dispatch
-                </button>
-              </div>
-            )}
-          </div>
-        ) : (
-          <button 
-            onClick={handleAuthorization}
-            className="w-full bg-blue-600 text-white font-black py-5 rounded-2xl flex items-center justify-center gap-3 hover:bg-blue-500 shadow-xl shadow-blue-900/20 text-sm uppercase tracking-widest"
-          >
-            Authorize Field Dispatch
-          </button>
-        )}
-      </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 };

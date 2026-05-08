@@ -1,83 +1,64 @@
-# Project: Ignition OS
+# GEMINI.md — Ignition OS
+> **For Gemini/Antigravity only.** Claude Code reads CLAUDE.md (identical rules, separate file).
+> Read this file top to bottom before writing a single line of code.
 
-## Status
-- Current phase: Active development — pilot prep
-- Last worked on: 2026-05-07 — Built IgnitionIntake.jsx (Zone 1 intake), IgnitionEstimate.jsx (Zone 3 service writer), CustomerApprovalPortal.jsx (in-person e-sign authorization), shop_estimate.py Railway estimate agent, supabase_job_lifecycle_migration.sql (13-table schema). All committed to main.
+---
 
-## Handoff
-> This section is rewritten at the end of every session by whichever AI is finishing.
-> Read this first — it tells you exactly where to pick up.
-> **CRITICAL:** ALWAYS update the handoff note before we lose context. I do not want to lose any effort.
+# PROJECT: Ignition OS
+# STATUS: 🟢 ACTIVE DEVELOPMENT — Pilot Prep
+# CURRENT AI: Claude ← update when you switch
 
-# PROJECT: ignition-os
-# STATUS: ACTIVE DEVELOPMENT
-# CURRENT AI: Claude  ← update when you switch
+---
 
-- **Completed this session:** Phase 3 — Hardware Ledger. Created `supabase_hardware_ledger_migration.sql` (extends tools table + new tool_signout_log table). Built `modules/IgnitionTools.jsx` (web): tool registry, PMI status badges, add tool form, bay custody toggle, manager bypass log viewer. Modified `modules/IgnitionKosk.jsx`: gated tool acknowledgment section before SlideToComplete (active only when enable_bay_custody=ON), inline manager bypass form writes to tool_signout_log with is_manager_bypass=true. Wired TOOLS module into `CoreApp.jsx` (import, route, dashboard grid).
-- **Next task:** Backlog — Velocity leaderboard in OMNI, or vehicle sign-out scope (PROC/HUB modules).
-- **Last file edited:** `CoreApp.jsx`
-- **Last command run:** None this session
-- **Tests passing:** Manual — compiles; migration not yet run in Supabase (needs to be run before tools UI is live)
+## 0. Pilot Definition
+> Pilot = single shop, single location, real customers, real repair orders.
+
+Pilot is NOT complete until:
+- [ ] All job lifecycle states work end-to-end: intake → closed
+- [x] IgnitionFlux and IgnitionOmni read from Supabase (not localStorage)
+- [x] `supabase_hardware_ledger_migration.sql` run in production
+- [ ] At least one real RO processed start to finish without intervention
+- [ ] No module reads from localStorage as source of truth
+
+---
+
+## 1. Handoff
+> Rewritten at the end of every session. Read this first — no recap needed.
+> **CRITICAL:** Update BOTH `CLAUDE.md` AND `GEMINI.md` before ending any session.
+
 - **Session ended by:** Claude — 2026-05-08
+- **Completed this session:** Velocity leaderboard in IgnitionOmni — efficiency % per tech (flagged hrs sold ÷ clocked hrs from labor_entries × shop_members join), ranked table with emerald/amber/red badges, demo fallback, management show/hide toggle. supabase_shop_settings_migration.sql confirmed run — is_dot_mandated and margin_config live in production.
+- **Next task:** End-to-end pilot dry run — smoke test full RO lifecycle (intake → closed) on production Supabase; identify any state-machine gaps before first real customer
+- **Last file edited:** `modules/IgnitionOmni.jsx`
+- **Last command run:** `git push origin main` (commit 7d011511)
+- **Tests passing:** Manual compile only
 
-**Prerequisite status:**
-- `supabase_inventory_migration.sql` — DONE (run 2026-05-07)
-- `supabase_price_override_migration.sql` — DONE (run 2026-05-07)
-- `eval-photos` Supabase Storage bucket — DONE (created 2026-05-08, public)
-- `supabase_hardware_ledger_migration.sql` — NEEDS TO BE RUN in Supabase before tools UI works
+**Migration prerequisite status:**
+| Migration | Status |
+|---|---|
+| supabase_schema.sql | ✅ Run |
+| supabase_rls_pilot.sql | ✅ Run |
+| supabase_identity_v2_migration.sql | ✅ Run |
+| supabase_team_system_migration.sql | ✅ Run |
+| supabase_job_lifecycle_migration.sql | ✅ Run |
+| supabase_concept_aliases_migration.sql | ✅ Run |
+| supabase_error_events_migration.sql | ✅ Run |
+| supabase_feature_events_migration.sql | ✅ Run |
+| supabase_monitoring_alerts_migration.sql | ✅ Run |
+| supabase_inventory_migration.sql | ✅ Run (2026-05-07) |
+| supabase_price_override_migration.sql | ✅ Run (2026-05-07) |
+| supabase_hardware_ledger_migration.sql | ✅ Run (2026-05-08) |
+| supabase_shop_settings_migration.sql | ✅ Run (2026-05-08) |
 
-## Dev Commands
+---
 
-**Start everything (recommended):**
-```bash
-./start.sh          # starts FastAPI :8000 + Vite :5173 + Expo mobile
-./start.sh --stop   # kills all three servers
-```
+## 2. Architecture
 
-**Individual servers:**
-```bash
-npm run dev                                                        # Vite web only → http://localhost:5173
-npm run build                                                      # production web build → dist/
-source venv/bin/activate && uvicorn shop_estimate:app --reload --port 8000  # FastAPI only
-```
-
-**Python environment setup (first time):**
-```bash
-python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt
-```
-
-**Logs:** `.logs/python.log` and `.logs/web.log` (created by `start.sh`)
-
-**API docs (FastAPI auto-generated):** `http://localhost:8000/docs`
-
-## Environment Variables
-
-Create a `.env` file in the project root:
-```
-GEMINI_API_KEY=
-ANTHROPIC_API_KEY=
-OPENAI_API_KEY=
-VITE_SUPABASE_URL=
-VITE_SUPABASE_ANON_KEY=
-SUPABASE_SERVICE_KEY=
-VITE_API_URL=        # Railway backend URL for production; http://localhost:8000 for local
-```
-
-The Python backend reads these via `python-dotenv`. The Vite frontend reads `VITE_*` vars at build time.
-
-**Collaboration workflow:**
-1. Generate feature specs or code snippets in Gemini web session
-2. Paste output into `gemini_staging_inbox.md` pending section
-3. Tell Claude Code in chat: "look at the inbox and implement [feature]"
-4. Claude builds it natively, checks it off in the inbox, updates this file with status changes
-5. **CRITICAL:** ALWAYS update the handoff note before we lose context. I do not want to lose any effort.
-
-## Architecture
 - **Frontend:** React + Vite (web), React Native + Expo (mobile), shared module codebase
 - **Routing:** `CoreApp.jsx` — `activeModule` string state switches rendered module; `AccessGatekeeper` wraps modules with `requiredPermissions`
 - **Backend:** Python FastAPI on Railway — `ai_router.py` (core app + shared clients), `shop_estimate.py` (estimate agent), `monitor.py` (health)
-- **Database:** Supabase (PostgreSQL) at ufsgqckbxdtwviqjjtos.supabase.co — source of truth for all state
-- **Local state:** `DataBridge.js` localStorage — device-private scratchpad only, never source of truth
+- **Database:** Supabase (PostgreSQL) at ufsgqckbxdtwviqjjtos.supabase.co — **source of truth for all state**
+- **Local state:** `DataBridge.js` localStorage — device-private scratchpad only, **never source of truth**
 - **AI bundle:** Claude (reasoning + estimate agent via Haiku), Gemini (vision), OpenAI Whisper (voice)
 - **Auth:** SHA-256 PIN hashing browser-native via `crypto.subtle.digest`, salted with shopId
 - **Env:** `VITE_API_URL` for all Railway calls — never hardcode localhost
@@ -87,17 +68,16 @@ The Python backend reads these via `python-dotenv`. The Vite frontend reads `VIT
 - `ModuleName.native.js` — React Native / Expo mobile
 - Both live in `modules/`. When editing a module, check if a `.native.js` counterpart exists and needs the same change.
 
-**Key design decisions (generate code that respects these):**
-- Supabase is source of truth. localStorage is scratchpad only.
-- Jobs always write both FK columns (customer_id, vehicle_id) AND legacy jsonb columns (customer, vehicle) — backward compat with older modules that read jsonb.
-- Legal authorization snapshot (`customer_authorizations`) is immutable once written — UUID arrays frozen at auth time.
-- Invoice line items are immutable snapshots. Never update after creation.
-- Tax on parts only: `tax = subtotal_parts × taxRate`. Labor is not taxed.
-- `_get_labor_hours()` in shop_estimate.py is the Mitchell1/AllData swap point — change only that function body, pipeline unchanged.
+**Key design decisions:**
+- Supabase is source of truth; localStorage is scratchpad only. All status transitions write to Supabase.
+- Jobs INSERT writes both FK columns (customer_id, vehicle_id) AND legacy jsonb columns (customer, vehicle) for backward compat.
+- `customer_authorizations.authorized_line_ids` and `declined_line_ids` are UUID arrays frozen at auth time — legal snapshot, never mutated.
+- `invoice_line_items` are immutable snapshots; never updated after creation.
+- Tax on parts only — `tax = subtotal_parts × taxRate`. Labor and fees are not taxed.
+- `_get_labor_hours()` in shop_estimate.py is the Mitchell1/AllData swap point — change only that function body.
 - `_source_parts()` in shop_estimate.py is the vendor API swap point — same isolation pattern.
-- All SQL migrations must include `DROP TRIGGER/POLICY IF EXISTS` guards — must be re-runnable.
-- Never hardcode localhost. Always use `VITE_API_URL` env var for Railway backend calls.
-- RLS pilot pattern: `DROP POLICY IF EXISTS` + `CREATE POLICY "pilot_all" FOR ALL USING (true) WITH CHECK (true)` on every table.
+- All SQL migrations use `DROP TRIGGER/POLICY IF EXISTS` before creation — safely re-runnable.
+- RLS pilot pattern: `DROP POLICY IF EXISTS` + `CREATE POLICY "pilot_all" FOR ALL USING (true) WITH CHECK (true)`.
 
 **Job lifecycle state machine:**
 ```
@@ -105,32 +85,50 @@ intake → queued → in_eval → eval_done → estimating → pending_auth
 → authorized → in_repair → supplement → repair_done → invoiced → closed
 ```
 
-**Migration run order:**
-1. supabase_schema.sql
-2. supabase_rls_pilot.sql
-3. supabase_identity_v2_migration.sql
-4. supabase_team_system_migration.sql
-5. supabase_job_lifecycle_migration.sql
-6. supabase_concept_aliases_migration.sql
-7. supabase_error_events_migration.sql
-8. supabase_feature_events_migration.sql
-9. supabase_monitoring_alerts_migration.sql
-10. supabase_inventory_migration.sql
-11. supabase_price_override_migration.sql
-12. supabase_hardware_ledger_migration.sql
+---
 
-**Module build status:**
-- `IgnitionIntake.jsx` ✅ — 3-phase intake form, writes customers/customer_vehicles/jobs to Supabase
-- `IgnitionEstimate.jsx` ✅ — service writer queue, AI build trigger, inline editing, send flow, CustomerApprovalPortal overlay
-- `CustomerApprovalPortal.jsx` ✅ — per-line approve/decline, e-sign, writes auth snapshot + updates estimate/job status
-- `shop_estimate.py` ✅ — Railway estimate agent: POST /api/estimate/build
-- `IgnitionFlux.jsx` — exists, reads from localStorage (not yet migrated to Supabase)
-- `IgnitionKosk.jsx` ✅ — repair workflow, tool accountability gate (gated by enable_bay_custody policy), manager bypass writes to tool_signout_log
-- `IgnitionTools.jsx` ✅ — tool registry + PMI tracking, add tool form, bay custody toggle (admin only), bypass log viewer
-- `IgnitionOmni.jsx` — exists, reads from localStorage (not yet migrated to Supabase)
-- All other modules (Cipher, STOK, PROC, PORT, HUB, Compliance, CRM, VIN, Voice) — exist, pre-migration state
+## 3. Module Map
 
-**Key tables:**
+> When a feature request comes in, check this map FIRST before proposing where it belongs.
+> Adding a new module requires 3 touch points in CoreApp.jsx: import, route case, dashboard grid entry.
+
+| Module | Purpose | Status |
+|---|---|---|
+| IgnitionIntake.jsx | New RO creation, customer/vehicle intake | ✅ Live |
+| IgnitionEval.jsx | Tech evaluation, DTC codes, photos, labor clock | ✅ Live |
+| IgnitionEstimate.jsx | Service writer queue, AI estimate build, auth portal | ✅ Live |
+| CustomerApprovalPortal.jsx | Per-line approve/decline, e-sign, auth snapshot | ✅ Live |
+| IgnitionKosk.jsx | Tech floor interface, repair workflow, tool custody gate | ✅ Live |
+| IgnitionTools.jsx | Tool registry, PMI tracking, bay custody toggle, bypass log | ✅ Live |
+| IgnitionInvoice.jsx | Invoice generation, payment collection, job close | ✅ Live |
+| IgnitionFlux.jsx | Live RO job board — all jobs by status, click-to-navigate | ✅ Live |
+| IgnitionOmni.jsx | Management dashboard, reporting, leakage audit, velocity leaderboard | ✅ Live |
+| IgnitionProc.jsx | Vendor procurement, PO management, parts-run vehicle sign-out | 🔲 Pre-migration |
+| IgnitionHub.jsx | Dispatch, service calls, wrecker/after-hours vehicle sign-out | 🔲 Pre-migration |
+| IgnitionCipher.jsx | Auth, PIN management, role permissions | 🔲 Pre-migration |
+| IgnitionCRM.jsx | Customer relationship management | 🔲 Pre-migration |
+| IgnitionSTOK.jsx | Inventory management | 🔲 Pre-migration |
+| IgnitionVIN.jsx | VIN decode gate (shared component) | ✅ Live — check here before building VIN fallbacks |
+
+**Vehicle sign-out architecture decision (locked):**
+- Parts run (short, internal, tied to PO) → belongs in **IgnitionProc**
+- Wrecker / after-hours service call (customer-facing, billable, mileage) → belongs in **IgnitionHub**
+- Do NOT create a standalone vehicle module
+
+---
+
+## 4. Known Fragile Points
+
+> These are landmines. Know them before touching related code.
+
+- **CoreApp.jsx routing** — 3 touch points required for every new module (import, route case, dashboard grid). Missing any one breaks navigation silently
+- **shop_estimate.py `_get_labor_hours()`** — currently a stub. Real Mitchell1/AllData not wired. Don't build features that depend on accurate labor hour data yet
+- **CustomerApprovalPortal** — fullscreen z-index overlay; mobile viewport conflicts possible on small screens
+- **DataBridge.js** — other modules still depend on its localStorage keys. Do not remove keys or change the save/load API shape
+
+---
+
+## 5. Key Tables
 
 | Table | Purpose |
 |---|---|
@@ -147,58 +145,147 @@ intake → queued → in_eval → eval_done → estimating → pending_auth
 | repair_logs | Repair outcomes, parts used |
 | invoices | Final invoice |
 | invoice_line_items | Immutable snapshot of authorized line items |
+| tools | Shop equipment registry with PMI tracking |
+| tool_signout_log | Tool custody audit trail — CHECKED_OUT/CHECKED_IN/ACKNOWLEDGED, manager bypass recorded |
 
-## Active Tasks
-- [x] Zone 2 — Tech eval UI: `IgnitionEval.jsx` — DTC codes, photos, work items, labor clock, submit → eval_done
-- [x] Parts sourcing trigger: after authorization, split approved line items → in-stock pull vs. PO creation for out-of-stock
-- [x] Invoice + closeout: generate invoice from authorized estimate_line_items → invoice_line_items snapshot → payment → jobs.status='closed'
-- [x] Migrate FLUX, KOSK, OMNI to read job state from Supabase instead of localStorage
-- [x] Repair workflow: labor clock-in/out, repair_logs entries, supplement branch detection
+---
+
+## 6. Active Tasks
+
+**Current sprint:**
+- [ ] End-to-end pilot dry run — smoke test full RO lifecycle (intake → closed) on production Supabase
 
 **Backlog (post-pilot):**
-- [x] Slab margin pricing engine UI — PriceField wired into PART line items in IgnitionEstimate, Relationship Tax metadata saved to Supabase
-- [x] PDF invoice generation — GET /api/invoices/{id}/pdf on Railway, reportlab server-side, download button in IgnitionInvoice
-- [x] Hardware ledger and tool tracking — IgnitionTools.jsx (registry/PMI/bypass log), KOSK gated tool ack, supabase_hardware_ledger_migration.sql
-- [ ] Velocity leaderboard in OMNI (efficiency % per tech, management toggle)
 - [ ] Multi-location registry and quick-dial hub
 - [ ] 14-day trial savings report (conversion hook)
 - [ ] Tiered access controller (LITE/PRO/PLATINUM feature flags)
 - [ ] SMS estimate delivery (vs. in-person portal only)
 - [ ] Staff revocation with two-step confirm ("nuke" option)
 - [ ] Multi-day job suspension with DO NOT MOVE flag
+- [ ] Vehicle sign-out in IgnitionProc (parts run)
+- [ ] Vehicle sign-out in IgnitionHub (wrecker/service call)
 
-## Off Limits / Don't Touch
-- `supabase.js` — client config, do not change
-- `DataBridge.js` — do not remove existing keys or change the save/load API
-- `AIEngine.js` — changes need full context of all three AI providers
-- `MarginEngine.js` — pricing formulas, do not change without a business decision
-- `dist/`, `__pycache__/`, `.vercel/` — never include in generated code or suggestions
-- Already-run SQL migration files — append new migrations, never edit existing ones
+**Completed (reference only):**
+- [x] Zone 1 — IgnitionIntake.jsx
+- [x] Zone 3 — IgnitionEstimate.jsx + CustomerApprovalPortal.jsx
+- [x] shop_estimate.py Railway estimate agent
+- [x] supabase_job_lifecycle_migration.sql (13-table schema)
+- [x] Zone 2 — IgnitionEval.jsx (DTC, photos, labor clock)
+- [x] Parts sourcing trigger (authorized lines → in-stock pull vs. PO)
+- [x] Invoice + closeout (IgnitionInvoice.jsx)
+- [x] Repair workflow (labor clock, repair_logs, supplement branch)
+- [x] Slab margin pricing engine (PriceField in IgnitionEstimate)
+- [x] PDF invoice generation (Railway reportlab endpoint)
+- [x] Phase 3 — Hardware ledger (IgnitionTools.jsx + KOSK gate)
+- [x] Velocity leaderboard in IgnitionOmni (efficiency % per tech, show/hide toggle)
+- [x] Migrate IgnitionFlux + IgnitionOmni to Supabase
+- [x] supabase_shop_settings_migration.sql (is_dot_mandated + margin_config)
 
-## Shop Floor Philosophy: The Soft-Gated Workflow
-**Golden Rule:** If it takes more clicks than writing on paper, the techs won't use it.
-- Hide time clocks behind natural physical actions. Do not use generic "Punch In" buttons.
-- **Eval Phase:** Clock auto-starts when VIN is validated (`IgnitionVIN` gate). Clock auto-stops when Eval is submitted.
-- **Repair Phase:** Clock auto-starts when parts are acknowledged ("Parts in Bay"). Clock auto-stops when QC is completed and job is slid to complete.
-- **CRITICAL RULE FOR AI:** Never rebuild existing functionality. Always check the `/modules` folder for pre-built components (like `IgnitionVIN`) before proposing dummy fallbacks or placeholder buttons.
+---
 
-## Compliance & PII Guardrails
-- **What PII we can store:** Customer Name, Phone Number, Email, Physical Address, and VIN.
-- **Where we can store PII:** ONLY in the `customers` and `customer_vehicles` Supabase tables.
-- **Local Storage:** Never store unencrypted PII in `DataBridge` or `localStorage`. Use UUID references instead.
-- **AI/External APIs:** Never send raw PII (Name, Phone, Email) to external LLMs or unauthorized third-party APIs. Anonymize payloads before sending.
-- **Audit:** Maintain strict audit logs for any bulk export or deletion of PII.
+## 7. Off Limits — Do Not Touch
 
-## Coding Standards
-- **Language:** JSX/React with hooks for frontend; Python 3 + FastAPI + Pydantic for backend
-- **Styling:** Tailwind CSS dark slate palette — `bg-slate-950` screens, `bg-slate-900` cards, `border-slate-800` borders
-- **Accent colors:** Blue for actions, Emerald for success, Amber for warnings, Red for errors
-- **Icons:** Lucide React only
-- **No emojis** in code or UI
-- **No comments** unless the WHY is non-obvious
-- **Naming:** PascalCase components, camelCase functions/variables, SCREAMING_SNAKE for constants
-- **UI heading style:** `text-white font-black italic uppercase tracking-tighter`
-- **Primary CTA buttons:** `py-4 rounded-2xl font-black uppercase tracking-widest text-[10px]`
-- **Status badges:** `text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded border`
-- **API calls:** always use `VITE_API_URL` env var
-- **Supabase writes:** always handle errors with user-facing error state
+- `supabase.js` — Supabase client config; do not change connection details
+- `DataBridge.js` — core persistence layer; do not remove existing keys or change the save/load API
+- `AIEngine.js` — AI orchestration; changes need full context of all three AI providers
+- `MarginEngine.js` — pricing logic used across multiple modules; do not change calculation formulas without a business decision
+- `dist/` — build output, never edit directly
+- `__pycache__/` — never commit
+- `.vercel/` — deployment config, never commit
+- **All `supabase_*_migration.sql` files already run** — append new migrations, never edit existing ones
+
+---
+
+## 8. Dev Commands
+
+**Start everything (recommended):**
+```bash
+./start.sh          # starts FastAPI :8000 + Vite :5173 + Expo mobile
+./start.sh --stop   # kills all three servers
+```
+
+**Individual servers:**
+```bash
+npm run dev                                                                    # Vite web → http://localhost:5173
+npm run build                                                                  # production build → dist/
+source venv/bin/activate && uvicorn shop_estimate:app --reload --port 8000    # FastAPI only
+```
+
+**Python environment (first time only):**
+```bash
+python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt
+```
+
+**Logs:** `.logs/python.log` and `.logs/web.log` (created by `start.sh`)
+**API docs:** `http://localhost:8000/docs`
+
+---
+
+## 9. Environment Variables
+
+```
+GEMINI_API_KEY=
+ANTHROPIC_API_KEY=
+OPENAI_API_KEY=
+VITE_SUPABASE_URL=
+VITE_SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_KEY=
+VITE_API_URL=        # Railway URL for production; http://localhost:8000 for local
+```
+
+Python backend reads via `python-dotenv`. Vite frontend reads `VITE_*` at build time.
+
+---
+
+## 10. Shop Floor Philosophy
+> **Golden Rule:** If it takes more clicks than writing on paper, the techs won't use it.
+
+- Features are **owner-optional** — enforcement features are opt-in toggles, OFF by default
+- Default state is **trust** — zero added friction until a toggle is explicitly enabled
+- Hide time clocks behind natural physical actions. No generic "Punch In" buttons.
+- **Eval phase:** Clock auto-starts when VIN is validated. Clock auto-stops when eval submitted.
+- **Repair phase:** Clock auto-starts when parts are acknowledged ("Parts in Bay"). Clock auto-stops when QC complete and job slid to complete.
+- **CRITICAL:** Never rebuild existing functionality. Always check `/modules` for pre-built components (like `IgnitionVIN`) before proposing fallbacks or placeholder buttons.
+
+---
+
+## 11. Compliance & PII Guardrails
+
+- **Storable PII:** Customer Name, Phone, Email, Address, VIN only
+- **Storage location:** ONLY in `customers` and `customer_vehicles` Supabase tables
+- **localStorage:** Never store unencrypted PII in DataBridge. Use UUID references instead
+- **External APIs:** Never send raw PII (Name, Phone, Email) to LLMs or third-party APIs. Anonymize payloads before sending
+- **Audit:** Maintain strict audit logs for any bulk export or deletion of PII
+
+---
+
+## 12. Coding Standards
+
+- **Language:** JSX/React with hooks (frontend); Python 3 + FastAPI + Pydantic (backend)
+- **Styling:** Tailwind CSS only — dark slate palette (`bg-slate-950` screens, `bg-slate-900` cards, `border-slate-800` borders)
+- **Icons:** Lucide React only — no other icon libraries
+- **Accent colors:** Blue = actions, Emerald = success, Amber = warnings, Red = errors
+- **No emojis** in code, UI, or file content unless explicitly requested
+- **No comments** unless the WHY is non-obvious — no docblocks, no "this function does X" comments
+- **Naming:** PascalCase components, camelCase functions/variables, SCREAMING_SNAKE constants
+- **Heading style:** `text-white font-black italic uppercase tracking-tighter`
+- **Button style (primary CTA):** `py-4 rounded-2xl font-black uppercase tracking-widest text-[10px]`
+- **Badge style:** `text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded border`
+- **API calls:** always use `VITE_API_URL` env var, never hardcode localhost
+- **Supabase writes:** always handle errors; show user-facing error state; never silently swallow failures
+- **No backwards-compat shims** — if something is fully replaced, delete the old version
+- **New SQL migrations:** must include `DROP TRIGGER/POLICY IF EXISTS` guards; must be re-runnable
+
+---
+
+## 13. End-of-Session Protocol
+> Run this checklist before ending every session.
+
+1. Update the `## 1. Handoff` section in **both** `CLAUDE.md` and `GEMINI.md`
+2. Update `## 3. Module Map` if any module status changed
+3. Update `## 6. Active Tasks` — check off completed items, add new ones
+4. Update `## 1. Handoff` migration table if any migrations were run
+5. Confirm no hardcoded secrets, URLs, or localhost references in new code
+6. Confirm no placeholder/mock code left undocumented
+7. Confirm `.env.example` updated if new variables were added
+8. Output a plain English summary of the session for human review

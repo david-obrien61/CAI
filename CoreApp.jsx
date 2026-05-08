@@ -516,7 +516,17 @@ const AccessGatekeeper = ({ requiredPermissions, children }) => {
 /**
  * UI: The PIN Login Block — with biometric (Face ID / Touch ID) support
  */
-const IdentityMatrix = ({ onLogin }) => {
+const ShopBanner = ({ name }) => {
+  if (!name) return null;
+  return (
+    <div className="flex items-center justify-between px-6 py-2 bg-slate-900/80 border-b border-slate-800 flex-shrink-0">
+      <span className="text-[11px] font-black italic uppercase text-white tracking-tighter">{name}</span>
+      <span className="text-[8px] font-black uppercase text-slate-600 tracking-[0.2em]">Powered by Ignition OS</span>
+    </div>
+  );
+};
+
+const IdentityMatrix = ({ onLogin, shopName }) => {
   const [pin, setPin]                   = useState('');
   const [loginError, setLoginError]     = useState('');
   const [loading, setLoading]           = useState(false);
@@ -642,6 +652,12 @@ const IdentityMatrix = ({ onLogin }) => {
              <div className="bg-slate-950 w-24 h-24 mx-auto rounded-3xl flex items-center justify-center border border-slate-800 shadow-xl mb-8">
                <Lock size={40} className="text-blue-500" />
              </div>
+             {shopName && (
+               <div className="mb-4 pb-4 border-b border-slate-800">
+                 <p className="text-[8px] font-black uppercase tracking-[0.2em] text-slate-600 mb-1">Accessing</p>
+                 <p className="text-lg font-black italic uppercase text-white tracking-tighter leading-tight">{shopName}</p>
+               </div>
+             )}
              <h1 className="text-2xl font-black italic text-white uppercase tracking-tighter mb-2">Identity Matrix</h1>
              <p className="text-[9px] font-mono text-slate-500 mb-6 uppercase tracking-[0.2em]">Enter 4-Digit Security Authorization</p>
 
@@ -721,6 +737,11 @@ const CoreApp = () => {
   const [isKioskMode, setIsKioskMode] = useState(false);
   const [trialStatus, setTrialStatus] = useState(() => DataBridge.getShopTrialStatus());
   const [nudgeDismissed, setNudgeDismissed] = useState(false);
+  const [shopName, setShopName] = useState(DataBridge.getShopName() || '');
+  const [shopReady, setShopReady] = useState(() => {
+    const p = new URLSearchParams(window.location.search);
+    return !!DataBridge.getShopId() || !!p.get('join') || !!p.get('enroll') || !!p.get('invite');
+  });
 
   // 2. REFRESH SUBSCRIPTIONS: Pull latest from DataBridge on module switch
   useEffect(() => {
@@ -758,6 +779,46 @@ const CoreApp = () => {
   // CLOUD SYNC: Pull latest jobs from Python backend on mount
   useEffect(() => {
     fetchCloudData();
+  }, []);
+
+  // SHOP IDENTITY: Resolve ?s=UUID param → store shopId + name, gate on no identity
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    const sParam = p.get('s');
+    if (p.get('join') || p.get('enroll') || p.get('invite')) return;
+
+    if (sParam) {
+      supabase.from('shops').select('id, name').eq('id', sParam).maybeSingle()
+        .then(({ data }) => {
+          if (data) {
+            DataBridge.setShopId(data.id);
+            DataBridge.setShopName(data.name);
+            setShopName(data.name);
+          } else {
+            const mkt = import.meta.env.VITE_MARKETING_URL;
+            if (mkt) window.location.href = mkt;
+          }
+          setShopReady(true);
+        });
+    } else {
+      const storedId = DataBridge.getShopId();
+      if (!storedId) {
+        const mkt = import.meta.env.VITE_MARKETING_URL;
+        if (mkt) { window.location.href = mkt; return; }
+        setShopReady(true);
+      } else {
+        const cached = DataBridge.getShopName();
+        if (cached) { setShopName(cached); setShopReady(true); }
+        supabase.from('shops').select('name').eq('id', storedId).single()
+          .then(({ data }) => {
+            if (data?.name) {
+              DataBridge.setShopName(data.name);
+              setShopName(data.name);
+            }
+            if (!cached) setShopReady(true);
+          });
+      }
+    }
   }, []);
 
   // AUTO-LOCK: idle timeout — locks screen after 10 min inactivity when enabled
@@ -803,8 +864,16 @@ const CoreApp = () => {
      return <EnrollmentGate token={enrollToken} />;
   }
 
+  if (!shopReady) {
+    return (
+      <div className="h-screen w-screen bg-black flex items-center justify-center">
+        <p className="text-slate-700 text-[10px] font-black uppercase tracking-widest animate-pulse">Initializing...</p>
+      </div>
+    );
+  }
+
   if (!currentUser) {
-    return <IdentityMatrix onLogin={(user) => {
+    return <IdentityMatrix shopName={shopName} onLogin={(user) => {
        DataBridge.save('current_user', user);
        setCurrentUser(user);
     }} />;
@@ -906,6 +975,9 @@ const CoreApp = () => {
           </div>
         </div>
       </header>
+
+      {/* ── SHOP IDENTITY BANNER ─────────────────────────────────────────────── */}
+      <ShopBanner name={shopName} />
 
       {/* ── TRIAL BANNER ─────────────────────────────────────────────────────── */}
       {!trialStatus.isPaid && !isKioskMode && (() => {
@@ -1072,7 +1144,7 @@ const CoreApp = () => {
         {activeModule === 'DASHBOARD' && (
           <div className="p-8 pb-32">
             <h1 className="text-4xl font-black italic mb-2 text-white">IGNITION OS</h1>
-            <p className="text-slate-500 font-mono text-xs uppercase tracking-[0.2em] mb-12">Operational Command Grid // Leander, TX</p>
+            <p className="text-slate-500 font-mono text-xs uppercase tracking-[0.2em] mb-12">Operational Command Grid // {shopName || DataBridge.load('shop_info')?.name || 'Your Shop'}</p>
             
             <div className="grid grid-cols-4 gap-y-8 gap-x-4 md:grid-cols-6 lg:grid-cols-8 justify-items-center">
               {[
@@ -1126,7 +1198,11 @@ const CoreApp = () => {
         {activeModule === 'FLUX' && (
           <AccessGatekeeper requiredPermissions={['view_flux']}>
             <TrialGatekeeper moduleKey="FLUX" moduleName="Ignition Flux">
-              <IgnitionFlux activeJob={activeJob} onUpdateJob={handleUpdateJob} />
+              <IgnitionFlux
+                onNavigate={(module) => setActiveModule(module)}
+                onSelectJob={(j) => { setActiveJob(j); DataBridge.save('active_job_context', j); }}
+                onEnterKiosk={() => setIsKioskMode(true)}
+              />
             </TrialGatekeeper>
           </AccessGatekeeper>
         )}

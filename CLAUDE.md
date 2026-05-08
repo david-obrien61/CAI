@@ -15,8 +15,8 @@
 
 Pilot is NOT complete until:
 - [ ] All job lifecycle states work end-to-end: intake → closed
-- [ ] IgnitionFlux and IgnitionOmni read from Supabase (not localStorage)
-- [ ] `supabase_hardware_ledger_migration.sql` run in production
+- [x] IgnitionFlux and IgnitionOmni read from Supabase (not localStorage)
+- [x] `supabase_hardware_ledger_migration.sql` run in production
 - [ ] At least one real RO processed start to finish without intervention
 - [ ] No module reads from localStorage as source of truth
 
@@ -27,12 +27,11 @@ Pilot is NOT complete until:
 > **CRITICAL:** Update BOTH `CLAUDE.md` AND `GEMINI.md` before ending any session.
 
 - **Session ended by:** Claude — 2026-05-08
-- **Completed this session:** Phase 3 Hardware Ledger — created `supabase_hardware_ledger_migration.sql` (extends tools table + new tool_signout_log). Built `modules/IgnitionTools.jsx`: tool registry, PMI status badges, add tool form, bay custody toggle, manager bypass log viewer. Modified `modules/IgnitionKosk.jsx`: gated tool acknowledgment before SlideToComplete (active only when enable_bay_custody=ON), inline manager bypass form writes to tool_signout_log with is_manager_bypass=true. Wired TOOLS into `CoreApp.jsx` (import, route, dashboard grid).
-- **Next task:** Velocity leaderboard in OMNI (efficiency % per tech, management toggle) OR migrate IgnitionFlux + IgnitionOmni from localStorage to Supabase.
-- **Last file edited:** `CoreApp.jsx`
+- **Completed this session:** Velocity leaderboard in IgnitionOmni — efficiency % per tech (flagged hrs sold ÷ clocked hrs from labor_entries × shop_members join), ranked table with emerald/amber/red badges, demo fallback, management show/hide toggle. supabase_shop_settings_migration.sql confirmed run — is_dot_mandated and margin_config live in production.
+- **Next task:** End-to-end pilot dry run — smoke test full RO lifecycle (intake → closed) on production Supabase; identify any state-machine gaps before first real customer
+- **Last file edited:** `modules/IgnitionOmni.jsx`
 - **Last command run:** `git push origin main` (commit 7d011511)
-- **Tests passing:** Manual compile only — migration NOT yet run in Supabase
-- **⚠️ Pending manual step:** Run `supabase_hardware_ledger_migration.sql` in Supabase Dashboard before tools UI will work
+- **Tests passing:** Manual compile only
 
 **Migration prerequisite status:**
 | Migration | Status |
@@ -48,7 +47,8 @@ Pilot is NOT complete until:
 | supabase_monitoring_alerts_migration.sql | ✅ Run |
 | supabase_inventory_migration.sql | ✅ Run (2026-05-07) |
 | supabase_price_override_migration.sql | ✅ Run (2026-05-07) |
-| supabase_hardware_ledger_migration.sql | ⚠️ NEEDS TO BE RUN |
+| supabase_hardware_ledger_migration.sql | ✅ Run (2026-05-08) |
+| supabase_shop_settings_migration.sql | ✅ Run (2026-05-08) |
 
 ---
 
@@ -99,10 +99,10 @@ intake → queued → in_eval → eval_done → estimating → pending_auth
 | IgnitionEstimate.jsx | Service writer queue, AI estimate build, auth portal | ✅ Live |
 | CustomerApprovalPortal.jsx | Per-line approve/decline, e-sign, auth snapshot | ✅ Live |
 | IgnitionKosk.jsx | Tech floor interface, repair workflow, tool custody gate | ✅ Live |
-| IgnitionTools.jsx | Tool registry, PMI tracking, bay custody toggle, bypass log | ✅ Live (migration pending) |
+| IgnitionTools.jsx | Tool registry, PMI tracking, bay custody toggle, bypass log | ✅ Live |
 | IgnitionInvoice.jsx | Invoice generation, payment collection, job close | ✅ Live |
-| IgnitionFlux.jsx | Job board / dispatch view | ⚠️ localStorage only — needs Supabase migration |
-| IgnitionOmni.jsx | Management dashboard, reporting, leaderboard | ⚠️ localStorage only — needs Supabase migration |
+| IgnitionFlux.jsx | Live RO job board — all jobs by status, click-to-navigate | ✅ Live |
+| IgnitionOmni.jsx | Management dashboard, reporting, leakage audit, velocity leaderboard | ✅ Live |
 | IgnitionProc.jsx | Vendor procurement, PO management, parts-run vehicle sign-out | 🔲 Pre-migration |
 | IgnitionHub.jsx | Dispatch, service calls, wrecker/after-hours vehicle sign-out | 🔲 Pre-migration |
 | IgnitionCipher.jsx | Auth, PIN management, role permissions | 🔲 Pre-migration |
@@ -121,10 +121,8 @@ intake → queued → in_eval → eval_done → estimating → pending_auth
 
 > These are landmines. Know them before touching related code.
 
-- **IgnitionFlux + IgnitionOmni** still read from localStorage — any feature touching job state will silently fail in these modules until migrated
 - **CoreApp.jsx routing** — 3 touch points required for every new module (import, route case, dashboard grid). Missing any one breaks navigation silently
 - **shop_estimate.py `_get_labor_hours()`** — currently a stub. Real Mitchell1/AllData not wired. Don't build features that depend on accurate labor hour data yet
-- **`supabase_hardware_ledger_migration.sql`** — not yet run in production. IgnitionTools.jsx will fail until this is executed
 - **CustomerApprovalPortal** — fullscreen z-index overlay; mobile viewport conflicts possible on small screens
 - **DataBridge.js** — other modules still depend on its localStorage keys. Do not remove keys or change the save/load API shape
 
@@ -155,9 +153,7 @@ intake → queued → in_eval → eval_done → estimating → pending_auth
 ## 6. Active Tasks
 
 **Current sprint:**
-- [ ] Velocity leaderboard in OMNI (efficiency % per tech, management toggle)
-- [ ] Migrate IgnitionFlux to read job state from Supabase
-- [ ] Migrate IgnitionOmni to read from Supabase
+- [ ] End-to-end pilot dry run — smoke test full RO lifecycle (intake → closed) on production Supabase
 
 **Backlog (post-pilot):**
 - [ ] Multi-location registry and quick-dial hub
@@ -181,6 +177,9 @@ intake → queued → in_eval → eval_done → estimating → pending_auth
 - [x] Slab margin pricing engine (PriceField in IgnitionEstimate)
 - [x] PDF invoice generation (Railway reportlab endpoint)
 - [x] Phase 3 — Hardware ledger (IgnitionTools.jsx + KOSK gate)
+- [x] Velocity leaderboard in IgnitionOmni (efficiency % per tech, show/hide toggle)
+- [x] Migrate IgnitionFlux + IgnitionOmni to Supabase
+- [x] supabase_shop_settings_migration.sql (is_dot_mandated + margin_config)
 
 ---
 

@@ -1571,9 +1571,23 @@ const ShopTab = () => {
   const [policy, setPolicy] = useState(() => DataBridge.load('shop_policy') || {});
   const [saved, setSaved] = useState(false);
 
-  const saveAll = () => {
+  const saveAll = async () => {
     DataBridge.save('shop_info', info);
     DataBridge.save('shop_policy', policy);
+
+    const shopId = DataBridge.getShopId();
+    if (shopId) {
+      const c = info.global_contact || {};
+      await supabase.from('shops').update({
+        name:    info.name    || null,
+        phone:   c.phone     || null,
+        email:   c.email     || null,
+        address: c.address   || null,
+        usdot:   c.usdot     || null,
+      }).eq('id', shopId);
+      DataBridge.setShopName(info.name || '');
+    }
+
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
   };
