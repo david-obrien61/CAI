@@ -27,11 +27,21 @@ Pilot is NOT complete until:
 > **CRITICAL:** Update BOTH `CLAUDE.md` AND `GEMINI.md` before ending any session.
 
 - **Session ended by:** Claude — 2026-05-08
-- **Completed this session:** Velocity leaderboard in IgnitionOmni — efficiency % per tech (flagged hrs sold ÷ clocked hrs from labor_entries × shop_members join), ranked table with emerald/amber/red badges, demo fallback, management show/hide toggle. supabase_shop_settings_migration.sql confirmed run — is_dot_mandated and margin_config live in production.
-- **Next task:** End-to-end pilot dry run — smoke test full RO lifecycle (intake → closed) on production Supabase; identify any state-machine gaps before first real customer
-- **Last file edited:** `modules/IgnitionOmni.jsx`
-- **Last command run:** `git push origin main` (commit 7d011511)
-- **Tests passing:** Manual compile only
+- **Completed this session:**
+  - **Velocity leaderboard** (`modules/IgnitionOmni.jsx:278–475`) — efficiency % per tech (flagged hrs ÷ clocked hrs from labor_entries × shop_members join), ranked table, emerald/amber/red badges, demo fallback, management show/hide toggle
+  - **Shop identity system** — `?s=UUID` URL param resolves shop name from Supabase on load (`CoreApp.jsx:784–817`); fallback Supabase fetch when shopId cached but name missing (`CoreApp.jsx:797–817`); redirects to `VITE_MARKETING_URL` when no identity present
+  - **ShopBanner component** (`CoreApp.jsx:519–528`) — persistent strip above every module: shop name left, "Powered by Ignition OS" right; returns null when name empty so no blank bar
+  - **Login screen shop name** (`CoreApp.jsx:655–660`) — shop name displayed above PIN pad with "Accessing" label, only renders when name is populated
+  - **Dashboard header** (`CoreApp.jsx:1137`) — replaced hardcoded "Leander, TX" with live `shopName` state
+  - **DataBridge** (`DataBridge.js:186–195`) — `getShopName()` / `setShopName()` persisted to `IGNITION_SHOP_NAME` localStorage key
+  - **IgnitionAdmin ShopTab** (`modules/IgnitionAdmin.jsx:1574–1590`) — `saveAll()` now async, writes name/phone/email/address/usdot to Supabase `shops` table in addition to localStorage; calls `DataBridge.setShopName()` to sync banner immediately
+  - **Permission fix** — `shop_members.permissions` must be role keys `["ADMIN","TECH","PRICING_AUTHORITY"]`, not expanded capability strings. Owner row inserted and corrected for `e54e2067-d1a4-4d2c-93ca-3c246e74ab22`
+  - **Created `.env.example`** — documents all env vars including new `VITE_MARKETING_URL`
+- **Next task:** End-to-end pilot dry run — smoke test full RO lifecycle (intake → closed) on production Supabase; document any state-machine gaps before first real customer
+- **Last file edited:** `modules/IgnitionAdmin.jsx`
+- **Last command run:** `git push origin main` (commit c5aa63db)
+- **Tests passing:** Manual compile only — deployed to Vercel (c5aa63db), ~90s build time
+- **⚠️ Pending manual step:** Go to Admin → Shop Settings on production and save the real shop name — currently `david auto repair` in Supabase, address is null
 
 **Migration prerequisite status:**
 | Migration | Status |
@@ -230,7 +240,8 @@ OPENAI_API_KEY=
 VITE_SUPABASE_URL=
 VITE_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_KEY=
-VITE_API_URL=        # Railway URL for production; http://localhost:8000 for local
+VITE_API_URL=           # Railway URL for production; http://localhost:8000 for local
+VITE_MARKETING_URL=     # Optional — redirect target when no ?s= param and no shopId in localStorage
 ```
 
 Python backend reads via `python-dotenv`. Vite frontend reads `VITE_*` at build time.
