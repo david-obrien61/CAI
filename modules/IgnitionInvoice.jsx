@@ -19,6 +19,7 @@ export default function IgnitionInvoice({ onBack }) {
   
   const [paymentMethod, setPaymentMethod] = useState('CARD');
   const [mileageOut, setMileageOut] = useState('');
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
 
   // Fixed pilot tax rate
   const TAX_RATE = 0.0825;
@@ -162,6 +163,27 @@ export default function IgnitionInvoice({ onBack }) {
     setSelectedJob(prev => ({ ...prev, status: 'invoiced' }));
     
     setProcessing(false);
+  };
+
+  const downloadPdf = async () => {
+    if (!invoice) return;
+    setDownloadingPdf(true);
+    try {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const res = await fetch(`${apiUrl}/api/invoices/${invoice.id}/pdf`);
+      if (!res.ok) throw new Error('PDF generation failed');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `invoice-${invoice.id.slice(0, 8).toUpperCase()}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('[PDF]', e);
+    } finally {
+      setDownloadingPdf(false);
+    }
   };
 
   const processPaymentAndClose = async () => {
@@ -363,8 +385,12 @@ export default function IgnitionInvoice({ onBack }) {
                  <CheckCircle2 size={48} className="text-emerald-400 mb-4" />
                  <h3 className="text-lg font-black italic uppercase tracking-tighter text-white mb-1">Invoice Paid</h3>
                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-6">Job Closed • {invoice.payment_method}</p>
-                 <button className="w-full bg-slate-800 hover:bg-slate-700 text-white font-black py-4 rounded-2xl uppercase tracking-widest text-[10px] transition-colors flex items-center justify-center gap-2">
-                   <Printer size={14}/> Print Receipt
+                 <button
+                   onClick={downloadPdf}
+                   disabled={downloadingPdf}
+                   className="w-full bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-white font-black py-4 rounded-2xl uppercase tracking-widest text-[10px] transition-colors flex items-center justify-center gap-2"
+                 >
+                   <Printer size={14}/> {downloadingPdf ? 'Generating...' : 'Download Invoice PDF'}
                  </button>
                </div>
             )}

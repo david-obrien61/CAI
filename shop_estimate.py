@@ -7,7 +7,7 @@ from google.genai import types
 from typing import List, Dict, Optional
 from pydantic import BaseModel, Field
 from fastapi import FastAPI, UploadFile, File, HTTPException, Query
-from fastapi.responses import PlainTextResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import PlainTextResponse, HTMLResponse, RedirectResponse, Response
 import httpx
 import uvicorn
 from fastapi.middleware.cors import CORSMiddleware
@@ -816,6 +816,165 @@ async def qbo_push_invoice(payload: dict):
         raise HTTPException(status_code=resp.status_code, detail=f"QBO push failed: {resp.text}")
 
     return resp.json()
+
+
+# ==========================================
+# 6b. INVOICE PDF GENERATION
+# ==========================================
+
+def _build_invoice_pdf(inv: dict, items: list, job: dict, shop: dict) -> bytes:
+    import io
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.lib.units import inch
+    from reportlab.lib import colors
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable
+
+    DARK  = colors.HexColor('#1e293b')
+    MID   = colors.HexColor('#64748b')
+    STRIPE = colors.HexColor('#f8fafc')
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=letter,
+        rightMargin=0.75*inch, leftMargin=0.75*inch,
+        topMargin=0.75*inch,   bottomMargin=0.75*inch,
+    )
+    styles = getSampleStyleSheet()
+    story  = []
+
+    # ── Shop header ──────────────────────────────────────────────────────────
+    shop_name  = shop.get('name')  or 'Ignition Shop'
+    shop_addr  = shop.get('address') or ''
+    shop_phone = shop.get('phone')   or ''
+    shop_usdot = shop.get('usdot')   or ''
+
+    story.append(Paragraph(f'<b>{shop_name.upper()}</b>', styles['h1']))
+    contact = ' | '.join(filter(None, [shop_addr, shop_phone, f'DOT# {shop_usdot}' if shop_usdot else '']))
+    if contact:
+        story.append(Paragraph(contact, styles['Normal']))
+    story.append(HRFlowable(width='100%', thickness=1, color=DARK, spaceBefore=6, spaceAfter=8))
+
+    # ── Invoice number + date ─────────────────────────────────────────────────
+    inv_num    = (inv.get('id') or '')[:8].upper()
+    created    = (inv.get('created_at') or '')[:10]
+    story.append(Paragraph(f'<b>INVOICE #{inv_num}</b>&nbsp;&nbsp;&nbsp;{created}', styles['h2']))
+    story.append(Spacer(1, 0.1*inch))
+
+    # ── Bill To / Vehicle ─────────────────────────────────────────────────────
+    customer = job.get('customer') or {}
+    vehicle  = job.get('vehicle')  or {}
+    cust_name  = customer.get('name')  or '—'
+    cust_phone = customer.get('phone') or ''
+    veh_str    = ' '.join(filter(None, [
+        str(vehicle.get('year', '')), vehicle.get('make', ''), vehicle.get('model', '')
+    ])) or '—'
+    vin = vehicle.get('vin', '')
+    vin_display = f'VIN: ...{vin[-6:]}' if len(vin) >= 6 else (f'VIN: {vin}' if vin else '')
+
+    bill_table = Table(
+        [
+            [Paragraph('<b>Bill To</b>', styles['Normal']), Paragraph('<b>Vehicle</b>', styles['Normal'])],
+            [Paragraph(cust_name, styles['Normal']),        Paragraph(veh_str, styles['Normal'])],
+            [Paragraph(cust_phone, styles['Normal']),       Paragraph(vin_display, styles['Normal'])],
+        ],
+        colWidths=[3.5*inch, 3.5*inch]
+    )
+    bill_table.setStyle(TableStyle([('VALIGN', (0,0), (-1,-1), 'TOP'), ('TOPPADDING', (0,0), (-1,-1), 2)]))
+    story.append(bill_table)
+    story.append(HRFlowable(width='100%', thickness=1, color=DARK, spaceBefore=8, spaceAfter=6))
+
+    # ── Line items ────────────────────────────────────────────────────────────
+    rows = [['Type', 'Description', 'Qty / Hrs', 'Unit Price', 'Total']]
+    for item in items:
+        itype = item.get('item_type', '')
+        desc  = item.get('description', '—')
+        if itype == 'LABOR':
+            qty_s  = f"{item.get('labor_hours') or 0} hrs"
+            unit_s = f"${float(item.get('labor_rate') or 0):.2f}/hr"
+        else:
+            qty_s  = str(item.get('quantity') or 1)
+            unit_s = f"${float(item.get('unit_price') or 0):.2f}"
+        total_s = f"${float(item.get('line_total') or 0):.2f}"
+        rows.append([itype, desc, qty_s, unit_s, total_s])
+
+    line_table = Table(rows, colWidths=[0.65*inch, 3.5*inch, 0.85*inch, 0.95*inch, 0.95*inch])
+    line_table.setStyle(TableStyle([
+        ('BACKGROUND',    (0,0), (-1,0),  DARK),
+        ('TEXTCOLOR',     (0,0), (-1,0),  colors.white),
+        ('FONTNAME',      (0,0), (-1,0),  'Helvetica-Bold'),
+        ('FONTSIZE',      (0,0), (-1,-1), 8),
+        ('ALIGN',         (2,0), (-1,-1), 'RIGHT'),
+        ('ROWBACKGROUNDS',(0,1), (-1,-1), [colors.white, STRIPE]),
+        ('GRID',          (0,0), (-1,-1), 0.5, colors.HexColor('#e2e8f0')),
+        ('TOPPADDING',    (0,0), (-1,-1), 5),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 5),
+        ('LEFTPADDING',   (0,0), (-1,-1), 5),
+        ('RIGHTPADDING',  (0,0), (-1,-1), 5),
+    ]))
+    story.append(line_table)
+    story.append(Spacer(1, 0.1*inch))
+
+    # ── Totals ────────────────────────────────────────────────────────────────
+    subtotal = float(inv.get('subtotal') or 0)
+    tax      = float(inv.get('tax')      or 0)
+    total    = float(inv.get('total')    or 0)
+
+    totals = Table(
+        [
+            ['', '', '', 'Subtotal:',        f'${subtotal:.2f}'],
+            ['', '', '', 'Tax (Parts Only):', f'${tax:.2f}'],
+            ['', '', '', Paragraph('<b>TOTAL</b>', styles['Normal']), Paragraph(f'<b>${total:.2f}</b>', styles['Normal'])],
+        ],
+        colWidths=[0.65*inch, 3.5*inch, 0.85*inch, 0.95*inch, 0.95*inch]
+    )
+    totals.setStyle(TableStyle([
+        ('ALIGN',         (3,0), (-1,-1), 'RIGHT'),
+        ('LINEABOVE',     (3,2), (-1,2),  1, DARK),
+        ('FONTSIZE',      (0,0), (-1,-1), 9),
+        ('TOPPADDING',    (0,0), (-1,-1), 4),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+    ]))
+    story.append(totals)
+
+    # ── Payment line (if paid) ────────────────────────────────────────────────
+    method  = inv.get('payment_method')
+    paid_at = inv.get('paid_at')
+    if method and paid_at:
+        story.append(HRFlowable(width='100%', thickness=0.5, color=MID, spaceBefore=10, spaceAfter=6))
+        story.append(Paragraph(f'<b>Payment:</b> {method} — {str(paid_at)[:10]}', styles['Normal']))
+
+    # ── Footer ────────────────────────────────────────────────────────────────
+    story.append(Spacer(1, 0.3*inch))
+    story.append(HRFlowable(width='100%', thickness=0.5, color=MID, spaceAfter=6))
+    story.append(Paragraph('Thank you for your business.', styles['Normal']))
+    story.append(Paragraph(shop_name, styles['Normal']))
+
+    doc.build(story)
+    return buf.getvalue()
+
+
+@app.get("/api/invoices/{invoice_id}/pdf")
+async def invoice_pdf(invoice_id: str):
+    from ai_router import _supabase
+    db = _supabase()
+
+    inv = db.table('invoices').select('*').eq('id', invoice_id).single().execute().data
+    if not inv:
+        raise HTTPException(404, "Invoice not found")
+
+    items = db.table('invoice_line_items').select('*').eq('invoice_id', invoice_id).order('sort_order').execute().data or []
+    job   = db.table('jobs').select('*').eq('id', inv['job_id']).single().execute().data or {}
+    shop  = db.table('shops').select('*').eq('id', inv['shop_id']).single().execute().data or {}
+
+    pdf_bytes = _build_invoice_pdf(inv, items, job, shop)
+    inv_num   = invoice_id[:8].upper()
+
+    return Response(
+        content=pdf_bytes,
+        media_type='application/pdf',
+        headers={'Content-Disposition': f'attachment; filename="invoice-{inv_num}.pdf"'},
+    )
 
 
 # ==========================================

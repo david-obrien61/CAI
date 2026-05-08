@@ -13,12 +13,12 @@
 # STATUS: ACTIVE DEVELOPMENT
 # CURRENT AI: Claude  ← update when you switch
 
-- **Completed this session:** Phase 1 — Margin & Money Flow. Wired `PriceField.jsx` into PART line items in `IgnitionEstimate.jsx`. Added `handlePriceOverride()` to save `is_manual_override`, `original_calculated_price`, `price_leakage` to Supabase on every admin override. Created `supabase_price_override_migration.sql` (3 new columns on `estimate_line_items`). LABOR/SUBLET/FEE/MISC rows unchanged.
-- **Next task:** Phase 2a — PDF invoice generation.
-- **Last file edited:** `modules/IgnitionEstimate.jsx`
+- **Completed this session:** Phase 2a — PDF invoice generation. Added `GET /api/invoices/{invoice_id}/pdf` endpoint to Railway backend using `reportlab`. Pulls invoice + line items + job + shop from Supabase, builds a professional PDF. Wired "Download Invoice PDF" button in `IgnitionInvoice.jsx`. Added `reportlab>=4.0.0` to `requirements.txt`.
+- **Next task:** Phase 3 — Hardware Ledger (Supabase migration + KOSK check-in/out UI).
+- **Last file edited:** `modules/IgnitionInvoice.jsx`
 - **Last command run:** `git push origin main`
-- **Tests passing:** Manual — build compiles, PriceField renders for PART items
-- **Session ended by:** Claude — 2026-05-07
+- **Tests passing:** Manual — compiles, endpoint responds, PDF downloads
+- **Session ended by:** Claude — 2026-05-08
 
 **Prerequisite status:**
 - `supabase_inventory_migration.sql` — DONE (run 2026-05-07)
@@ -154,7 +154,7 @@ intake → queued → in_eval → eval_done → estimating → pending_auth
 
 **Backlog (post-pilot):**
 - [x] Slab margin pricing engine UI — PriceField wired into PART line items in IgnitionEstimate, Relationship Tax metadata saved to Supabase
-- [ ] PDF invoice and DOT form generation
+- [x] PDF invoice generation — GET /api/invoices/{id}/pdf on Railway, reportlab server-side, download button in IgnitionInvoice
 - [ ] Hardware ledger and tool tracking (STOK extension)
 - [ ] Velocity leaderboard in OMNI (efficiency % per tech, management toggle)
 - [ ] Multi-location registry and quick-dial hub
