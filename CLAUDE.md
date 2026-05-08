@@ -27,7 +27,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Prerequisite status:**
 - `supabase_inventory_migration.sql` — DONE (run 2026-05-07)
 - `supabase_price_override_migration.sql` — DONE (run 2026-05-07)
-- `eval-photos` Supabase Storage bucket — NOT DONE. Must be created manually in the Supabase dashboard. Bucket name: `eval-photos`, set to public. Required before photo upload works.
+- `eval-photos` Supabase Storage bucket — DONE (created 2026-05-08, public)
 
 ## Dev Commands
 
