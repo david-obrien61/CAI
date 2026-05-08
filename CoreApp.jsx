@@ -28,7 +28,8 @@ import IgnitionIntake from './modules/IgnitionIntake';
 import IgnitionEstimate from './modules/IgnitionEstimate';
 import IgnitionEval from './modules/IgnitionEval';
 import IgnitionInvoice from './modules/IgnitionInvoice';
-import { Lock, LayoutDashboard, Truck, Activity, ShoppingCart, Search, Package, BarChart3, ShieldCheck, Users, Map, Store, ScanLine, QrCode, DollarSign, RefreshCw, UserPlus, ClipboardCheck, Cog, FileSearch, CheckCircle, ChevronRight, FilePlus, ClipboardList, Microscope, Receipt } from 'lucide-react';
+import IgnitionTools from './modules/IgnitionTools';
+import { Lock, LayoutDashboard, Truck, Activity, ShoppingCart, Search, Package, BarChart3, ShieldCheck, Users, Map, Store, ScanLine, QrCode, DollarSign, RefreshCw, UserPlus, ClipboardCheck, Cog, FileSearch, CheckCircle, ChevronRight, FilePlus, ClipboardList, Microscope, Receipt, Wrench } from 'lucide-react';
 
 /**
  * UI: Forgot PIN flow — staff enters 6-digit reset code from admin, sets new PIN
@@ -1093,6 +1094,7 @@ const CoreApp = () => {
                 { id: 'MARKETPLACE', label: 'Market', icon: ShoppingCart, color: 'text-pink-500', bg: 'bg-slate-800' },
                 { id: 'AUDIT', label: 'Audit', icon: FileSearch, color: 'text-rose-400', bg: 'bg-slate-800' },
                 { id: 'ADMIN', label: 'Admin', icon: Cog, color: 'text-slate-400', bg: 'bg-slate-800' },
+                { id: 'TOOLS', label: 'Tools', icon: Wrench, color: 'text-orange-400', bg: 'bg-slate-800' },
               ].map(app => {
                  const { isExpired } = DataBridge.checkTrialStatus(app.id);
                  const mod = subscriptions[app.id];
@@ -1191,6 +1193,12 @@ const CoreApp = () => {
         {activeModule === 'ADMIN' && (
           <AccessGatekeeper requiredPermissions={['manage_users']}>
             <IgnitionAdmin />
+          </AccessGatekeeper>
+        )}
+
+        {activeModule === 'TOOLS' && (
+          <AccessGatekeeper requiredPermissions={['manage_users']}>
+            <IgnitionTools />
           </AccessGatekeeper>
         )}
       </main>

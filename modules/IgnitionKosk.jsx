@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Clock, Barcode, ClipboardList, Mic, Play, Square, CheckCircle, Unlock, Activity, AlertOctagon, Microscope } from 'lucide-react';
+import { Clock, Barcode, ClipboardList, Mic, Play, Square, CheckCircle, Unlock, Activity, AlertOctagon, Microscope, Wrench, Shield } from 'lucide-react';
 import DataBridge from '../DataBridge';
 import { useIgnitionVoice } from '../hooks/useIgnitionVoice';
 import IgnitionHandover from './IgnitionHandover';
@@ -25,6 +25,12 @@ const IgnitionKosk = ({ activeJob, onUpdateJob, onExitKiosk, onStartEval }) => {
   const [repairTasks, setRepairTasks] = useState([]);
   const [completedTaskIds, setCompletedTaskIds] = useState([]);
   const [qcChecked, setQcChecked] = useState(false);
+  const [custodyEnabled, setCustodyEnabled] = useState(false);
+  const [shopTools, setShopTools] = useState([]);
+  const [toolAckIds, setToolAckIds] = useState([]);
+  const [pendingBypass, setPendingBypass] = useState(null);
+  const [bypassReason, setBypassReason] = useState('');
+  const [bypassSaving, setBypassSaving] = useState(false);
 
   useEffect(() => {
     if (!activeJob?.id) return;
@@ -46,6 +52,20 @@ const IgnitionKosk = ({ activeJob, onUpdateJob, onExitKiosk, onStartEval }) => {
          }
       });
   }, [activeJob?.id]);
+
+  useEffect(() => {
+    const policy = DataBridge.load('shop_policy') || {};
+    if (!policy.enable_bay_custody) return;
+    setCustodyEnabled(true);
+    const shopId = DataBridge.getShopId();
+    if (!shopId) return;
+    supabase
+      .from('tools')
+      .select('id, name, type, status')
+      .eq('shop_id', shopId)
+      .eq('status', 'ACTIVE')
+      .then(({ data }) => setShopTools(data || []));
+  }, []);
 
   useEffect(() => {
     if (activeJob?.id && ['AUTHORIZED', 'in_repair', 'supplement', 'repair_done'].includes(activeJob.status?.toUpperCase() || '')) {
@@ -332,10 +352,108 @@ const IgnitionKosk = ({ activeJob, onUpdateJob, onExitKiosk, onStartEval }) => {
         </div>
       </div>
 
+      {/* TOOL ACCOUNTABILITY (only when bay custody is enabled and clocked in) */}
+      {custodyEnabled && shopTools.length > 0 && isClockedIn && (
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 flex flex-col gap-4">
+          <h3 className="text-xs font-black text-slate-500 uppercase flex items-center gap-2">
+            <Wrench size={14} /> Tool Accountability
+          </h3>
+          {shopTools.map(tool => {
+            const isAcked = toolAckIds.includes(tool.id);
+            const isBypassing = pendingBypass === tool.id;
+            return (
+              <div key={tool.id}>
+                <div className={`flex justify-between items-center p-4 border rounded-2xl ${isAcked ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-slate-800 border-slate-700'}`}>
+                  <div>
+                    <p className={`font-bold ${isAcked ? 'text-emerald-500 line-through opacity-70' : 'text-white'}`}>{tool.name}</p>
+                    {tool.type && <p className="text-xs text-slate-400 mt-1">{tool.type}</p>}
+                  </div>
+                  {!isAcked && (
+                    <div className="flex gap-2">
+                      <button
+                        onClick={async () => {
+                          const techName = DataBridge.load('current_user')?.name || 'TECH';
+                          await supabase.from('tool_signout_log').insert({
+                            shop_id: DataBridge.getShopId(),
+                            tool_id: tool.id,
+                            tool_name: tool.name,
+                            tech_name: techName,
+                            job_id: activeJob?.id || null,
+                            action: 'CHECKED_IN',
+                          });
+                          setToolAckIds(prev => [...prev, tool.id]);
+                        }}
+                        className="bg-emerald-600/20 text-emerald-500 p-3 rounded-xl hover:bg-emerald-600 hover:text-white transition-colors active:scale-95"
+                      >
+                        <CheckCircle size={24} />
+                      </button>
+                      <button
+                        onClick={() => setPendingBypass(tool.id)}
+                        className="bg-amber-600/20 text-amber-500 p-3 rounded-xl hover:bg-amber-600 hover:text-white transition-colors active:scale-95"
+                      >
+                        <Shield size={24} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+                {isBypassing && (
+                  <div className="mt-2 bg-slate-800 border border-amber-500/30 rounded-2xl p-4 flex flex-col gap-3">
+                    <p className="text-amber-400 text-[10px] font-black uppercase tracking-widest">Manager Override Required</p>
+                    <input
+                      placeholder="Reason for override (required)"
+                      value={bypassReason}
+                      onChange={e => setBypassReason(e.target.value)}
+                      className="bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-amber-500"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={async () => {
+                          if (!bypassReason.trim()) return;
+                          setBypassSaving(true);
+                          const manager = DataBridge.load('current_user');
+                          await supabase.from('tool_signout_log').insert({
+                            shop_id: DataBridge.getShopId(),
+                            tool_id: tool.id,
+                            tool_name: tool.name,
+                            tech_name: manager?.name || 'TECH',
+                            job_id: activeJob?.id || null,
+                            action: 'CHECKED_IN',
+                            is_manager_bypass: true,
+                            bypass_by: manager?.name || 'Manager',
+                            bypass_reason: bypassReason.trim(),
+                          });
+                          setToolAckIds(prev => [...prev, tool.id]);
+                          setPendingBypass(null);
+                          setBypassReason('');
+                          setBypassSaving(false);
+                        }}
+                        disabled={bypassSaving || !bypassReason.trim()}
+                        className="flex-1 bg-amber-600 text-white py-3 rounded-xl text-[10px] font-black uppercase tracking-widest active:scale-95 disabled:opacity-50"
+                      >
+                        {bypassSaving ? 'Saving...' : 'Confirm Override'}
+                      </button>
+                      <button
+                        onClick={() => { setPendingBypass(null); setBypassReason(''); }}
+                        className="px-4 py-3 bg-slate-700 text-slate-300 rounded-xl text-[10px] font-black uppercase"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {/* THE GREASEMONKEY FAST-ACTION BAR */}
       <div className="fixed bottom-0 left-0 right-0 p-4 bg-slate-900/90 backdrop-blur-md pb-24">
-        <SlideToComplete 
-          disabled={repairTasks.length > 0 && !qcChecked}
+        <SlideToComplete
+          disabled={
+            (repairTasks.length > 0 && !qcChecked) ||
+            (custodyEnabled && shopTools.length > 0 && shopTools.some(t => !toolAckIds.includes(t.id)))
+          }
           onComplete={async () => {
             if (repairTasks.length > 0 && !qcChecked) {
                 alert("QC / Test Drive is required before completion.");
@@ -360,6 +478,9 @@ const IgnitionKosk = ({ activeJob, onUpdateJob, onExitKiosk, onStartEval }) => {
         />
         {repairTasks.length > 0 && !qcChecked && (
           <p className="text-center text-orange-500 text-[10px] font-black uppercase mt-2">Finish QC to unlock completion slider</p>
+        )}
+        {custodyEnabled && shopTools.length > 0 && shopTools.some(t => !toolAckIds.includes(t.id)) && (
+          <p className="text-center text-amber-500 text-[10px] font-black uppercase mt-2">Acknowledge all tools to unlock completion</p>
         )}
       </div>
 

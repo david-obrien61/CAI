@@ -13,17 +13,18 @@
 # STATUS: ACTIVE DEVELOPMENT
 # CURRENT AI: Claude  ← update when you switch
 
-- **Completed this session:** Phase 2a — PDF invoice generation. Added `GET /api/invoices/{invoice_id}/pdf` endpoint to Railway backend using `reportlab`. Pulls invoice + line items + job + shop from Supabase, builds a professional PDF. Wired "Download Invoice PDF" button in `IgnitionInvoice.jsx`. Added `reportlab>=4.0.0` to `requirements.txt`.
-- **Next task:** Phase 3 — Hardware Ledger (Supabase migration + KOSK check-in/out UI).
-- **Last file edited:** `modules/IgnitionInvoice.jsx`
-- **Last command run:** `git push origin main`
-- **Tests passing:** Manual — compiles, endpoint responds, PDF downloads
+- **Completed this session:** Phase 3 — Hardware Ledger. Created `supabase_hardware_ledger_migration.sql` (extends tools table + new tool_signout_log table). Built `modules/IgnitionTools.jsx` (web): tool registry, PMI status badges, add tool form, bay custody toggle, manager bypass log viewer. Modified `modules/IgnitionKosk.jsx`: gated tool acknowledgment section before SlideToComplete (active only when enable_bay_custody=ON), inline manager bypass form writes to tool_signout_log with is_manager_bypass=true. Wired TOOLS module into `CoreApp.jsx` (import, route, dashboard grid).
+- **Next task:** Backlog — Velocity leaderboard in OMNI, or vehicle sign-out scope (PROC/HUB modules).
+- **Last file edited:** `CoreApp.jsx`
+- **Last command run:** None this session
+- **Tests passing:** Manual — compiles; migration not yet run in Supabase (needs to be run before tools UI is live)
 - **Session ended by:** Claude — 2026-05-08
 
 **Prerequisite status:**
 - `supabase_inventory_migration.sql` — DONE (run 2026-05-07)
 - `supabase_price_override_migration.sql` — DONE (run 2026-05-07)
 - `eval-photos` Supabase Storage bucket — DONE (created 2026-05-08, public)
+- `supabase_hardware_ledger_migration.sql` — NEEDS TO BE RUN in Supabase before tools UI works
 
 ## Dev Commands
 
@@ -116,6 +117,7 @@ intake → queued → in_eval → eval_done → estimating → pending_auth
 9. supabase_monitoring_alerts_migration.sql
 10. supabase_inventory_migration.sql
 11. supabase_price_override_migration.sql
+12. supabase_hardware_ledger_migration.sql
 
 **Module build status:**
 - `IgnitionIntake.jsx` ✅ — 3-phase intake form, writes customers/customer_vehicles/jobs to Supabase
@@ -123,7 +125,8 @@ intake → queued → in_eval → eval_done → estimating → pending_auth
 - `CustomerApprovalPortal.jsx` ✅ — per-line approve/decline, e-sign, writes auth snapshot + updates estimate/job status
 - `shop_estimate.py` ✅ — Railway estimate agent: POST /api/estimate/build
 - `IgnitionFlux.jsx` — exists, reads from localStorage (not yet migrated to Supabase)
-- `IgnitionKosk.jsx` — exists, reads from localStorage (not yet migrated to Supabase)
+- `IgnitionKosk.jsx` ✅ — repair workflow, tool accountability gate (gated by enable_bay_custody policy), manager bypass writes to tool_signout_log
+- `IgnitionTools.jsx` ✅ — tool registry + PMI tracking, add tool form, bay custody toggle (admin only), bypass log viewer
 - `IgnitionOmni.jsx` — exists, reads from localStorage (not yet migrated to Supabase)
 - All other modules (Cipher, STOK, PROC, PORT, HUB, Compliance, CRM, VIN, Voice) — exist, pre-migration state
 
@@ -155,7 +158,7 @@ intake → queued → in_eval → eval_done → estimating → pending_auth
 **Backlog (post-pilot):**
 - [x] Slab margin pricing engine UI — PriceField wired into PART line items in IgnitionEstimate, Relationship Tax metadata saved to Supabase
 - [x] PDF invoice generation — GET /api/invoices/{id}/pdf on Railway, reportlab server-side, download button in IgnitionInvoice
-- [ ] Hardware ledger and tool tracking (STOK extension)
+- [x] Hardware ledger and tool tracking — IgnitionTools.jsx (registry/PMI/bypass log), KOSK gated tool ack, supabase_hardware_ledger_migration.sql
 - [ ] Velocity leaderboard in OMNI (efficiency % per tech, management toggle)
 - [ ] Multi-location registry and quick-dial hub
 - [ ] 14-day trial savings report (conversion hook)
